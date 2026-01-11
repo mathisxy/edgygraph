@@ -1,5 +1,4 @@
 from pydantic import BaseModel
 
-
 class GraphState(BaseModel):
-    pass
+    vars: dict[str, object] = {}
