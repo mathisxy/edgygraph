@@ -12,9 +12,9 @@ class END:
 
 class GraphEdge:
 
-    source: GraphNode | Type[START]
-    next: Callable[[GraphState], GraphNode | Type[END]]
+    source: GraphNode[GraphState] | Type[START]
+    next: Callable[[GraphState], GraphNode[GraphState] | Type[END]]
 
-    def __init__(self, source: GraphNode | Type[START], next: Callable[[GraphState], GraphNode | Type[END]]):
+    def __init__(self, source: GraphNode[GraphState] | Type[START], next: Callable[[GraphState], GraphNode[GraphState] | Type[END]]):
         self.source = source
         self.next = next
