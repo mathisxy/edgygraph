@@ -2,11 +2,8 @@ from pydantic import BaseModel, Field
 from typing import TypeVar, AsyncIterator, Protocol, Generic
 from types import TracebackType
 
-class GraphState(BaseModel):
-    vars: dict[str, object] = Field(default_factory=dict)
 
-
-T = TypeVar('T', covariant=True)
+T = TypeVar('T', covariant=True, default=object)
 
 class Stream(AsyncIterator[T], Protocol):
     async def aclose(self) -> None: ...
@@ -23,6 +20,6 @@ class Stream(AsyncIterator[T], Protocol):
         await self.aclose()
 
 
-class GraphStateStream(GraphState, Generic[T]):
-    
-    stream: Stream[T] | None = None
+class GraphState(BaseModel, Generic[T]):
+    vars: dict[str, object] = Field(default_factory=dict)
+    streams: dict[str, Stream[T]] = Field(default_factory=dict)

@@ -1,9 +1,9 @@
 [project]
 name = "edgygraph"
-version = "0.0.7"
+version = "0.0.10"
 description = "Graph-based Pipeline Builder"
 authors = [{ name="Mathis Siebert" }]
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = []
 
 [build-system]

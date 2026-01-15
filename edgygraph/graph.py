@@ -13,7 +13,7 @@ class GraphExecutor(Generic[T]):
         self.edges = edges
 
     async def __call__(self, initial_state: T) -> T:
-        state = initial_state
+        state: T = initial_state
         current_node: GraphNode[T] | Type[START] = START
 
         index_dict: dict[GraphNode[T] | Type[START], GraphEdge[T]] = {edge.source: edge for edge in self.edges}
@@ -29,7 +29,7 @@ class GraphExecutor(Generic[T]):
             else:
                 assert isinstance(next_node, GraphNode)
                 # Run the current node to update the state
-                state: GraphState = await next_node.run(state)
+                state: T = await next_node.run(state)
                 current_node = next_node
 
         return state
