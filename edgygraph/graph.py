@@ -48,17 +48,17 @@ class GraphExecutor(Generic[T]):
 
 
             parallel_tasks: list[Callable[[T], Awaitable[list[StateUpdate[T]]]]] = []
-            sequential_tasks: list[StateUpdate[T]] = []
             # Determine the next node using the edge's next function
             for next_node in next_nodes:
                 
                 parallel_tasks.append(next_node.run)
 
             # Run parallel
-            await asyncio.gather(*(task(state) for task in parallel_tasks))
+            update_tasks_list: list[list[StateUpdate[T]]] = await asyncio.gather(*(task(state) for task in parallel_tasks))
 
-            for seq in sequential_tasks:
-                await seq(state)
+            for update_tasks in update_tasks_list:
+                for update in update_tasks:
+                    update(state)
 
             
             current_nodes = next_nodes
