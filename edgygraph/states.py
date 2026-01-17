@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, Field, ConfigDict
-from typing import TypeVar, AsyncIterator, Generic, Protocol
+from typing import TypeVar, AsyncIterator, Generic, Protocol, Any
 from types import TracebackType
 
 
@@ -38,4 +38,4 @@ class State(BaseModel, Generic[T]):
 S = TypeVar('S', bound=State, contravariant=True)
 
 class StateUpdate(Protocol, Generic[S]):
-    def __call__(self, s: S) -> None: ...
+    def __call__(self, s: S) -> Any: ...
