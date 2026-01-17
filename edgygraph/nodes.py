@@ -8,5 +8,9 @@ T = TypeVar('T', bound=GraphState)
 class GraphNode(ABC, Generic[T]):
     
     @abstractmethod
-    async def run(self, state: T) -> T:
+    async def run(self, state: T) -> None:
+        pass
+
+    @abstractmethod
+    async def seq(self, state: T) -> None:
         pass
