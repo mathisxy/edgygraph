@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-# from pydantic import BaseModel, Field, ConfigDict
-from typing import TypeVar, AsyncIterator, Generic, TypedDict
+from pydantic import BaseModel, Field, ConfigDict
+from typing import TypeVar, AsyncIterator, Generic
 from types import TracebackType
 
 
@@ -28,8 +28,8 @@ class Stream(ABC, AsyncIterator[T]):
         await self.aclose()
 
 
-class GraphState(TypedDict, Generic[T]):
-    vars: dict[str, object] # = Field(default_factory=dict)
-    streams: dict[str, 'Stream[T]'] # = Field(default_factory=dict)
+class GraphState(BaseModel, Generic[T]):
+    vars: dict[str, object] = Field(default_factory=dict)
+    streams: dict[str, 'Stream[T]'] = Field(default_factory=dict)
 
-    # model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
