@@ -3,7 +3,6 @@ from .nodes import Node
 from .states import State, Shared
 from typing import Type, TypeVar, Generic, Callable, Sequence, Coroutine, Tuple, Any
 from collections import defaultdict
-# from deepdiff import DeepDiff
 import asyncio
 from pydantic import BaseModel
 from enum import StrEnum, auto
@@ -44,16 +43,11 @@ class Graph(Generic[T, S]):
                 edges.extend(self._index[current_node])
 
 
-            # next_nodes: list[Node[T, S]] = [
-            #     n for edge in edges 
-            #     if isinstance((n := edge.next(state, shared)), Node)
-            # ] # Only one execution of next filtering "END"s
-
             next_nodes: list[Node[T, S]] = []
             for edge in edges:
                 res = edge.next(state, shared)
                 if inspect.isawaitable(res):
-                    res = await res  # Hier wird die async-Funktion erst ausgeführt
+                    res = await res # for awaitables
                 
                 next_nodes.append(res)
 
@@ -63,6 +57,7 @@ class Graph(Generic[T, S]):
 
             
             parallel_tasks: list[Callable[[T, S], Coroutine[None, None, None]]] = []
+
             # Determine the next node using the edge's next function
             for next_node in next_nodes:
                 
@@ -95,12 +90,6 @@ class Graph(Generic[T, S]):
         result_dicts = [state.model_dump() for state in result_states]
         current_dict = current_state.model_dump()
         state_class = type(current_state)
-
-
-        # diffs = [DeepDiff(current_dict, result_dict) for result_dict in result_dicts]
-
-        # print("DIFFS")
-        # print(diffs)
 
         changes_list: list[dict[str, Any]] = []
 
