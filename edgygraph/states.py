@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from pydantic import BaseModel, Field, ConfigDict
-from typing import TypeVar, AsyncIterator, Generic, Protocol, Any
+from pydantic import BaseModel, ConfigDict
+from typing import TypeVar, AsyncIterator
 from types import TracebackType
 
 
@@ -28,14 +28,9 @@ class Stream(ABC, AsyncIterator[T]):
         await self.aclose()
 
 
-class State(BaseModel, Generic[T]):
-    vars: dict[str, object] = Field(default_factory=dict)
-    streams: dict[str, 'Stream[T]'] = Field(default_factory=dict)
+class State(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=False) # for deep copy
 
+
+class Shared(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-
-
-S = TypeVar('S', bound=State, contravariant=True)
-
-class StateUpdate(Protocol, Generic[S]):
-    def __call__(self, s: S) -> Any: ...

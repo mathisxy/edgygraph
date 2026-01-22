@@ -1,6 +1,6 @@
 from typing import Callable, Type, TypeVar, Generic
-from .states import State
-from .nodes import GraphNode
+from .states import State, Shared
+from .nodes import Node
 
 
 class START:
@@ -11,12 +11,13 @@ class END:
 
 
 T = TypeVar('T', bound=State)
+S = TypeVar('S', bound=Shared)
 
-class Edge(Generic[T]):
+class Edge(Generic[T, S]):
 
-    source: GraphNode[T] | Type[START] | list[GraphNode[T] | Type[START]]
-    next: Callable[[T], GraphNode[T] | Type[END]]
+    source: Node[T, S] | Type[START] | list[Node[T, S] | Type[START]]
+    next: Callable[[T, S], Node[T, S] | Type[END]]
 
-    def __init__(self, source: GraphNode[T] | Type[START] | list[GraphNode[T] | Type[START]], next: Callable[[T], GraphNode[T] | Type[END]]):
+    def __init__(self, source: Node[T, S] | Type[START] | list[Node[T, S] | Type[START]], next: Callable[[T, S], Node[T, S] | Type[END]]):
         self.source = source
         self.next = next
