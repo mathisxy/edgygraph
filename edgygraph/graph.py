@@ -1,7 +1,7 @@
-from .edges import Edge, START
+# from .edges import Edge, START
 from .nodes import Node
 from .states import State, Shared
-from typing import Type, TypeVar, Generic, Callable, Sequence, Coroutine, Tuple, Any
+from typing import Type, TypeVar, Callable, Sequence, Coroutine, Tuple, Any, Awaitable
 from collections import defaultdict
 import asyncio
 from pydantic import BaseModel
@@ -9,10 +9,21 @@ from enum import StrEnum, auto
 from collections import Counter
 import inspect
 
+class START:
+    pass
+
+class END:
+    pass
+
+
 T = TypeVar('T', bound=State)
 S = TypeVar('S', bound=Shared)
 
-class Graph(Generic[T, S]):
+SourceType = Node[T, S] | Type[START] | list[Node[T, S] | Type[START]]
+NextType = Callable[[T, S], Node[T, S] | Type[END] | Awaitable[Node[T, S] | Type[END]]]
+Edge = Tuple[SourceType[T, S], NextType[T, S]]
+
+class Graph[T: State, S: Shared]:
 
     edges: list[Edge[T, S]]
 
@@ -21,16 +32,16 @@ class Graph(Generic[T, S]):
         self._index: dict[Node[T, S] | Type[START], list[Edge[T, S]]] = defaultdict(list[Edge[T, S]])
 
         for edge in self.edges:
-            if isinstance(edge.source, list):
-                for source in edge.source:
+            sources = edge[0]
+            if isinstance(sources, list):
+                for source in sources:
                     self._index[source].append(edge)
             else:
-                self._index[edge.source].append(edge)
+                self._index[sources].append(edge)
 
 
-    async def __call__(self, initial_state: T, initial_shared: S) -> Tuple[T, S]:
-        state: T = initial_state
-        shared: S = initial_shared
+    async def __call__(self, state: T, shared: S) -> Tuple[T, S]:
+        
         current_nodes: Sequence[Node[T, S] | Type[START]] = [START]
 
         while True:
@@ -45,7 +56,7 @@ class Graph(Generic[T, S]):
 
             next_nodes: list[Node[T, S]] = []
             for edge in edges:
-                res = edge.next(state, shared)
+                res = edge[1](state, shared)
                 if inspect.isawaitable(res):
                     res = await res # for awaitables
                 

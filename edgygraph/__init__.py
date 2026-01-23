@@ -1,10 +1,10 @@
-from .edges import Edge, START, END
+# from .edges import Edge, START, END
 from .nodes import Node
 from .states import State, Shared, Stream
-from .graph import Graph
+from .graph import Graph, START, END
 
 __all__ = [
-    "Edge",
+    # "Edge",
     "Node",
     "State",
     "Stream",
