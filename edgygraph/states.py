@@ -1,12 +1,11 @@
 from abc import ABC, abstractmethod
-from pydantic import BaseModel, ConfigDict
-from typing import TypeVar, AsyncIterator
+from pydantic import BaseModel, ConfigDict, Field
+from typing import AsyncIterator
 from types import TracebackType
+from asyncio import Lock
 
 
-T = TypeVar('T', covariant=True, default=object)
-
-class Stream(ABC, AsyncIterator[T]):
+class Stream[T: object](ABC, AsyncIterator[T]):
 
     @abstractmethod
     async def aclose(self) -> None:
@@ -33,4 +32,5 @@ class State(BaseModel):
 
 
 class Shared(BaseModel):
+    lock: Lock = Field(default_factory=Lock)
     model_config = ConfigDict(arbitrary_types_allowed=True)

@@ -3,7 +3,7 @@ from .states import State, Shared
 from typing import Type, Callable, Coroutine, Tuple, Any, Awaitable
 from collections import defaultdict
 import asyncio
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from enum import StrEnum, auto
 from collections import Counter
 import inspect
@@ -21,12 +21,13 @@ type Edge[T: State, S: Shared] = tuple[SourceType[T, S], NextType[T, S]]
 
 class Graph[T: State, S: Shared](BaseModel):
 
-    edges: list[Edge[T, S]]
-    instant_edges: list[Edge[T, S]]
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    edges: list[Edge[T, S]] = Field(default_factory=list[Edge[T, S]])
+    instant_edges: list[Edge[T, S]] = Field(default_factory=list[Edge[T, S]])
 
     _edge_index: dict[Node[T, S] | Type[START], list[Edge[T, S]]] = defaultdict(list[Edge[T, S]])
     _instant_edge_index: dict[Node[T, S] | Type[START], list[Edge[T, S]]] = defaultdict(list[Edge[T, S]])
-
 
 
     def model_post_init(self, context: Any) -> None:
@@ -66,13 +67,18 @@ class Graph[T: State, S: Shared](BaseModel):
             current_instant_nodes: list[Node[T, S]] = next_nodes.copy()
             while True:
 
-                current_instance_nodes = await self.get_next_nodes(state, shared, current_instant_nodes, self._instant_edge_index)
+                current_instant_nodes = await self.get_next_nodes(state, shared, current_instant_nodes, self._instant_edge_index)
                 
-                if not current_instance_nodes:
+                print("Instant Nodes:")
+                print(current_instant_nodes)
+
+                if not current_instant_nodes:
                     break
                 
                 next_nodes.extend(current_instant_nodes)
 
+            print("Next Nodes:")
+            print(next_nodes)
             
             parallel_tasks: list[Callable[[T, S], Coroutine[None, None, None]]] = []
 
@@ -106,7 +112,7 @@ class Graph[T: State, S: Shared](BaseModel):
         for current_node in current_nodes:
 
             # Find the edge corresponding to the current node
-            edges.extend(self._edge_index[current_node])
+            edges.extend(edge_index[current_node])
 
 
         next_nodes: list[Node[T, S]] = []
