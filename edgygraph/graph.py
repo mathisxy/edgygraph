@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from enum import StrEnum, auto
 from collections import Counter
 from rich import print as rprint
+from llmir.rich_repr import RichReprMixin
 import inspect
 
 class START:
@@ -54,6 +55,8 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
 
 
     async def __call__(self, state: T, shared: S) -> Tuple[T, S]:
+
+        
         
         current_nodes: list[Node[T, S]] | list[Node[T, S] | Type[START]] = [START]
 
@@ -175,7 +178,7 @@ class ChangeTypes(StrEnum):
     REMOVED = auto()
     UPDATED = auto()
 
-class Change(BaseModel):
+class Change(RichReprMixin, BaseModel):
     type: ChangeTypes
     old: Any
     new: Any
