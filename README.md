@@ -3,6 +3,7 @@
 ![Pipy](https://img.shields.io/pypi/v/edgygraph)
 ![Downloads](https://img.shields.io/pypi/dm/edgygraph)
 ![Issues](https://img.shields.io/github/issues/mathisxy/Edgy-Graph)
+![Docs](https://img.shields.io/readthedocs/myproject)
 
 > **Status**: 🚧 In Development
 
