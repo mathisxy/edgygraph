@@ -22,7 +22,7 @@ Edgy Graph is a framework for building and executing graph-based pipelines. It s
 
 ## Installation
 
-### Pipy
+### PyPI
 ```
 pip install edgygraph
 ```
