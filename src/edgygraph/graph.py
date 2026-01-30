@@ -1,5 +1,6 @@
 from .nodes import Node
 from .states import State, Shared
+from .rich import RichReprMixin
 from typing import Type, Callable, Coroutine, Tuple, Any, Awaitable
 from collections import defaultdict
 import asyncio
@@ -7,13 +8,18 @@ from pydantic import BaseModel, ConfigDict, Field
 from enum import StrEnum, auto
 from collections import Counter
 from rich import print as rprint
-from llmir.rich_repr import RichReprMixin
 import inspect
 
 class START:
+    """
+    Represents a start nodedd
+    """
     pass
 
 class END:
+    """
+    Represents an end node
+    """
     pass
 
 
@@ -22,32 +28,51 @@ type NextType[T: State, S: Shared] = Node[T, S] | Type[END] | Callable[[T, S], N
 type Edge[T: State, S: Shared] = tuple[SourceType[T, S], NextType[T, S]]
 
 class Graph[T: State = State, S: Shared = Shared](BaseModel):
+    """
+    Create and execute a graph based on edges
+
+    Set the required State and Shared classes via the Generic Typing Parameters
+    Because of variance its possible to use nodes, that use more general State and Shared classes (ancestors) as the Generic Typing Parameters
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     edges: list[Edge[T, S]] = Field(default_factory=list[Edge[T, S]])
     instant_edges: list[Edge[T, S]] = Field(default_factory=list[Edge[T, S]])
 
-    _edge_index: dict[Node[T, S] | Type[START], list[Edge[T, S]]] = defaultdict(list[Edge[T, S]])
-    _instant_edge_index: dict[Node[T, S] | Type[START], list[Edge[T, S]]] = defaultdict(list[Edge[T, S]])
+    _edge_index: dict[Node[T, S] | Type[START], list[NextType[T, S]]] = defaultdict(list[NextType[T, S]])
+    _instant_edge_index: dict[Node[T, S] | Type[START], list[NextType[T, S]]] = defaultdict(list[NextType[T, S]])
 
 
-    def model_post_init(self, context: Any) -> None:
+    def model_post_init(self, _) -> None:
+        """
+        Index the edges by source node
+        """
         self._edge_index = self.index_edges(self.edges)
         self._instant_edge_index = self.index_edges(self.instant_edges)
         
 
-    def index_edges(self, edges: list[Edge[T, S]]) -> dict[Node[T, S] | Type[START], list[Edge[T, S]]]:
+    def index_edges(self, edges: list[Edge[T, S]]) -> dict[Node[T, S] | Type[START], list[NextType[T, S]]]:
+        """
+        Index the edges by source node
+
+        Arguments:
+           edges: The edges to index
+
+        Returns:
+            A mapping from source node (or START) to the next objects of the edge
+            
+        """
         
-        edges_index: dict[Node[T, S] | Type[START], list[Edge[T, S]]] = defaultdict(list[Edge[T, S]])
+        edges_index: dict[Node[T, S] | Type[START], list[NextType[T, S]]] = defaultdict(list[NextType[T, S]])
 
         for edge in edges:
             sources = edge[0]
             if isinstance(sources, list):
                 for source in sources:
-                    edges_index[source].append(edge)
+                    edges_index[source].append(edge[1])
             else:
-                edges_index[sources].append(edge)
+                edges_index[sources].append(edge[1])
 
         return edges_index
 
@@ -55,8 +80,16 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
 
 
     async def __call__(self, state: T, shared: S) -> Tuple[T, S]:
+        """
+        Execute the graph based on the edges
 
-        
+        Arguments:
+            state: State of the first generic type of the graph or a subtype
+            shared: Shared of the second generic type of the graph or a subtype
+
+        Returns:
+            New State instance and the same Shared instance
+        """
         
         current_nodes: list[Node[T, S]] | list[Node[T, S] | Type[START]] = [START]
 
@@ -86,13 +119,14 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
             
             parallel_tasks: list[Callable[[T, S], Coroutine[None, None, None]]] = []
 
-            # Determine the next node using the edge's next function
+
+            # Extract the run function of the nodes
             for next_node in next_nodes:
                 
                 parallel_tasks.append(next_node.run)
 
-            # Run parallel
 
+            # Run parallel
             result_states: list[T] = []
 
             async with asyncio.TaskGroup() as tg:
@@ -110,19 +144,31 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
 
         return state, shared
 
-    async def get_next_nodes(self, state: T, shared: S, current_nodes: list[Node[T, S]] | list[Node[T, S] | Type[START]], edge_index: dict[Node[T, S] | Type[START], list[Edge[T, S]]]) -> list[Node[T, S]]:
-        edges: list[Edge[T, S]] = []
+    async def get_next_nodes(self, state: T, shared: S, current_nodes: list[Node[T, S]] | list[Node[T, S] | Type[START]], edge_index: dict[Node[T, S] | Type[START], list[NextType[T, S]]]) -> list[Node[T, S]]:
+        """
+        Arguments:
+            state: The current State
+            shared: The Shared
+            current_nodes: The current nodes
+
+        Returns:
+           The list of the next nodes to run based on the current nodes and edges
+           If an edge is a callable, it will be called with the current State and Shared
+        """
+
+
+        next_types: list[NextType[T, S]] = []
 
         for current_node in current_nodes:
 
             # Find the edge corresponding to the current node
-            edges.extend(edge_index[current_node])
+            next_types.extend(edge_index[current_node])
 
 
         next_nodes: list[Node[T, S]] = []
-        for edge in edges:
+        for next in next_types:
 
-            next = edge[1]
+            next = next
 
             if next is END:
                 continue
@@ -142,12 +188,26 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
 
 
     def merge_states(self, current_state: T, result_states: list[T]) -> T:
+        """
+        Merges the result States into the current State.
+        First the changes are calculated for each result State.
+        Then the changes are checked for conflicts.
+        If there are conflicts, an exception is raised.
+        The changes are applied in the order of the result States list.
+
+        Arguments:
+            current_state: The current State
+            result_states: The result States
+
+        Returns:
+            The merged State, the same instance as the current State but with the changes applied
+        """
             
         result_dicts = [state.model_dump() for state in result_states]
         current_dict = current_state.model_dump()
         state_class = type(current_state)
 
-        changes_list: list[dict[str, Any]] = []
+        changes_list: list[dict[str, Change]] = []
 
         for result_dict in result_dicts:
 
@@ -162,7 +222,7 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
             raise Exception(f"Conflicts detected after parallel execution: {conflicts}")
 
         for changes in changes_list:
-            Diff.apply_patch(current_dict, changes)
+            Diff.apply_changes(current_dict, changes)
 
         state: T = state_class.model_validate(current_dict)
 
@@ -174,20 +234,39 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
             
 
 class ChangeTypes(StrEnum):
+    """
+    Enum for the types of changes that can be made to a State.
+    """
+
     ADDED = auto()
     REMOVED = auto()
     UPDATED = auto()
 
 class Change(RichReprMixin, BaseModel):
+    """
+    Represents a change made to a State.
+    """
+
     type: ChangeTypes
     old: Any
     new: Any
 
 
+
 class Diff:
+    """
+    Utility class for computing differences between states.
+    """
+
 
     @classmethod
     def find_conflicts(cls, changes: list[dict[str, Change]]) -> dict[str, list[Change]]:
+        """
+        Finds conflicts in a list of changes.
+
+        Arguments:
+           changes: A list of dictionaries representing changes to a state.
+        """
 
         if len(changes) <= 1:
             return {}
@@ -205,6 +284,18 @@ class Diff:
 
     @classmethod
     def recursive_diff(cls, old: Any, new: Any, path: str = "") -> dict[str, Change]:
+        """
+        Recursively computes the differences between two dictionaries.
+
+
+        Arguments:
+            old: Part of the old dictionary.
+            new: Part of the new dictionary.
+            path: The current path of the parts in the full dictionary, seperated with dots.
+
+        Returns:
+            A mapping of the path to the changes directly on that level.
+        """
         
         changes: dict[str, Change] = {}
 
@@ -227,8 +318,20 @@ class Diff:
 
         return changes
     
+
     @classmethod
-    def apply_patch(cls, target: dict[str, Any], changes: dict[str, Change]):
+    def apply_changes(cls, target: dict[str, Any], changes: dict[str, Change]):
+        """
+        Applies a set of changes to a dictionary.
+
+
+        Arguments:
+            target: The dictionary to apply the changes to.
+            changes: A mapping of paths, separated by dots, to changes. The changes are applied in the dictionary on that level.
+
+        Returns:
+            The modified dictionary.
+        """
 
         for path, change in changes.items():
             parts = path.split(".")
