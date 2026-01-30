@@ -19,3 +19,11 @@ Edgy Graph is a framework for building and executing graph-based pipelines. It s
 - **Inheritance and Variance**: Expand state and node classes with multi-inheritance
 - **Flexible Routing**: Dynamic path decisions based on functions
 - **Streaming**: Standardized interface for streaming from node to node
+
+## Installation
+
+### Pipy
+```
+pip install edgygraph
+```
+> Python 3.13 or higher is required
