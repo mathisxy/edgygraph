@@ -4,7 +4,6 @@ from .states import State, Shared, Stream
 from .graph import Graph, START, END
 
 __all__ = [
-    # "Edge",
     "Node",
     "State",
     "Stream",
