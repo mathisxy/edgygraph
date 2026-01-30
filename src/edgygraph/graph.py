@@ -1,4 +1,4 @@
-from .nodes import Node
+from .nodes import Node, START, END
 from .states import State, Shared
 from .rich import RichReprMixin
 from typing import Type, Callable, Coroutine, Tuple, Any, Awaitable
@@ -9,18 +9,6 @@ from enum import StrEnum, auto
 from collections import Counter
 from rich import print as rprint
 import inspect
-
-class START:
-    """
-    Represents a start node
-    """
-    pass
-
-class END:
-    """
-    Represents an end node
-    """
-    pass
 
 
 type SourceType[T: State, S: Shared] = Node[T, S] | Type[START] | list[Node[T, S] | Type[START]]
@@ -35,6 +23,12 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
     Because of variance its possible to use nodes, that use more general State and Shared classes (ancestors) as the Generic Typing Parameters. 
 
     The edges are defined as a list of tuples, where the first element is the source node and the second element reveals the next node.
+
+    Arguments:
+        T: The state class
+        S: The shared state class
+        edges: A list of edges of compatible nodes that build the graph
+        instant_edge: A list of edges of compatible nodes that run parallel to there source node
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
