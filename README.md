@@ -14,13 +14,13 @@ A **pydantically** typed, lightweight **graph framework** for Python that combin
 
 Edgy Graph is a framework for building and executing graph-based pipelines. It supports:
 
+- **Pydantic Typing** Full type safety with Pydantic and Generics
+- **Inheritance and Variance**: Expandable state and node classes with inheritance
 - **Asynchronous Execution**: Full `async/await` support for nodes
 - **Parallel Task Processing**: Multiple nodes can execute simultaneously
 - **State Management**: Best of both worlds; state management with conflict detection and shared object with lock
-- **Generic Typing**: Fully typed with Python Generics
-- **Inheritance and Variance**: Expand state and node classes with multi-inheritance
-- **Flexible Routing**: Dynamic path decisions based on functions
-- **Streaming**: Standardized interface for streaming from node to node
+- **Flexible Routing**: Simple or complex; dynamic path decisions based on functions or simple node to node edges
+- **Streaming**: Standardized interface for streaming to next nodes
 
 ## Installation
 
