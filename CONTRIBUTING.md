@@ -1,1 +1,1 @@
-- Fork → Branch → PR
+Fork → Branch → PR
