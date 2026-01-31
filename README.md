@@ -92,4 +92,7 @@ Graph[MyState, Shared](
 asyncio.run(graph(state, shared))
 ```
 
+<br>
  > More examples can be found in the examples folder
+
+
