@@ -91,3 +91,5 @@ Graph[MyState, Shared](
 ```python
 asyncio.run(graph(state, shared))
 ```
+
+ > More examples can be found in the examples folder
