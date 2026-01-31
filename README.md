@@ -23,7 +23,70 @@ Edgy Graph is a framework for building and executing graph-based pipelines. It s
 ## Installation
 
 ### PyPI
-```
+```bash
 pip install edgygraph
 ```
 > Python 3.13 or higher is required
+
+
+## Example Workflow
+
+### Import Classes
+
+```python
+from edgygraph import State, Shared, Node, START, END, Graph
+import asyncio
+```
+
+### Create a State
+
+```python
+class MyState(State):
+
+    capslock: bool = False
+```
+
+### Create a Node
+
+```python
+class MyNode(Node[MyState, Shared]):
+
+    async def run(self, state: MyState, shared: Shared) -> None:
+
+        if state.capslock:
+            print("HELLO WORLD!")
+        else:
+            print("Hello World!")
+```
+
+### Create Instances
+
+```python
+state = MyState(capslock=True)
+shared = Shared()
+
+node = MyNode()
+```
+
+### Create a Graph
+
+```python
+Graph[MyState, Shared](
+    edges=[
+        (
+            START,
+            node
+        ),
+        (
+            node,
+            END
+        )
+    ]
+)
+```
+
+### Run Graph
+
+```python
+asyncio.run(graph(state, shared))
+```
