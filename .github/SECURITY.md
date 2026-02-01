@@ -3,7 +3,7 @@
 ## Supported Versions
 
 We actively maintain **EdgyGraph** and provide security updates for the latest stable versions.  
-Currently, all releases are considered **pre-1.0 / alpha**. Users are encouraged to use the **latest release** for security fixes.
+Users are encouraged to use the **latest release** for security fixes.
 
 | Version | Supported |
 | ------- | --------- |
