@@ -9,7 +9,7 @@
 
 A **pydantically** typed, lightweight **graph framework** for Python that combines features from [Langgraph](https://github.com/langchain-ai/langgraph) with **static type security**.
 
-A community collection of nodes will be available ![here](https://www.github.com/mathisxy/edgynodes/)
+A community collection of nodes will be available [here](https://www.github.com/mathisxy/edgynodes/).
 
 ## Overview
 
