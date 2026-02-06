@@ -3,11 +3,13 @@
 [![Pipy](https://img.shields.io/pypi/v/edgygraph)](https://pypi.org/project/edgygraph/)
 [![Downloads](https://img.shields.io/pypi/dm/edgygraph)](https://pypi.org/project/edgygraph/#files)
 [![Issues](https://img.shields.io/github/issues/mathisxy/edgygraph)](https://github.com/mathisxy/edgygraph/issues)
-[![Type Check](https://github.com/mathisxy/edgygraph/actions/workflows/typecheck.yml/badge.svg)](https://github.com/mathisxy/Edgy-Graph/actions/workflows/typecheck.yml)
+[![Type Check](https://github.com/mathisxy/edgygraph/actions/workflows/typecheck.yml/badge.svg?branch=main)](https://github.com/mathisxy/Edgy-Graph/actions/workflows/typecheck.yml)
 [![Deploy Docs](https://github.com/mathisxy/edgygraph/actions/workflows/docs.yml/badge.svg)](https://github.com/mathisxy/Edgy-Graph/actions/workflows/docs.yml)
 [![Documentation](https://img.shields.io/badge/Docs-GitHub%20Pages-blue)](https://mathisxy.github.io/edgygraph/)
 
 A **pydantically** typed, lightweight **graph framework** for Python that combines features from [Langgraph](https://github.com/langchain-ai/langgraph) with **static type security**.
+
+A community collection of nodes will be available [here](https://www.github.com/mathisxy/edgynodes/).
 
 ## Overview
 
@@ -28,7 +30,7 @@ Edgy Graph is a framework for building and executing graph-based pipelines. It s
 ```bash
 pip install edgygraph
 ```
-> Python 3.13 or higher is required
+> Python 3.13+ is required
 
 
 ## Example Workflow
