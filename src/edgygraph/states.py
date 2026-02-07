@@ -32,6 +32,13 @@ class Shared(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+class StateAttribute(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=False) # for deep copy
+
+class SharedAttribute(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
+
 class Stream[T: object](ABC, AsyncIterator[T]):
     """
     Standardized wrapper interface for streams of data.
