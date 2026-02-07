@@ -2,23 +2,23 @@
 
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
     "Topic :: Software Development :: Libraries",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3.13",
 ]
 
 name = "edgygraph"
-version = "0.0.78"
+version = "0.0.76"
 description = "Graph-based Pipeline Builder"
 authors = [{ name="Mathis Siebert", email="mathis.siebert@gmail.com" }]
 readme = "README.md"
-license-files = ["LICENSE"]
+license = { file = "LICENSE" }
 requires-python = ">=3.13"
 dependencies = [
     "pydantic>=2.0",
     "rich>=14.0",
 ]
-
 
 [project.optional-dependencies]
 dev = [
