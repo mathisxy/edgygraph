@@ -1,9 +1,9 @@
-from .nodes import START, END
+from .nodes import START, END, Node
 from .states import StateProtocol as State, SharedProtocol as Shared
 from .rich import RichReprMixin
 from .logging import get_logger
 
-from typing import Type, Callable, Coroutine, Tuple, Any, Awaitable
+from typing import Type, Tuple, Any, Callable, Awaitable
 from collections import defaultdict
 import asyncio
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,9 +14,9 @@ import inspect
 logger = get_logger(__name__)
 
 
-type Node[T: State, S: Shared] = Callable[[T, S], Coroutine[None, None, None]]
+# type Node[T: State, S: Shared] = Callable[[T, S], Coroutine[None, None, None]]
 type SourceType[T: State, S: Shared] = Node[T, S] | type[START] | list[Node[T, S] | type[START]]
-type NextType[T: State, S: Shared] = Node[T, S] | type[END] # | Callable[[T, S], Node[T, S] | Type[END] | Awaitable[Node[T, S] | Type[END]]]
+type NextType[T: State, S: Shared] = Node[T, S] | type[END] | Callable[[T, S], Node[T, S] | Type[END] | Awaitable[Node[T, S] | Type[END]]]
 type Edge[T: State, S: Shared] = tuple[SourceType[T, S], NextType[T, S]]
 
 class Graph[T: State = State, S: Shared = Shared](BaseModel):
@@ -170,16 +170,17 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
                 assert next is END, "Only END is allowed as a type here"
                 continue
 
-            # if isinstance(next, Callable):
-            #     res = next(state, shared) #type:ignore (its not an END!)
-            #     if inspect.isawaitable(res):
-            #         res = await res # for awaitables
-                
-            #     if isinstance(res, Node):
-            #         next_nodes.append(res)
+            if isinstance(next, Node):
+                next_nodes.append(next)
             
-            # else:
-            next_nodes.append(next)
+            else:
+                res = next(state, shared)
+                if inspect.isawaitable(res):
+                    res = await res # for awaitables
+                
+                if isinstance(res, Node):
+                    next_nodes.append(res)
+
         
         return next_nodes
 

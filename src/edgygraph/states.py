@@ -1,27 +1,30 @@
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, ConfigDict, Field
-from typing import AsyncIterator, Protocol, Any, Self
+from typing import AsyncIterator, Protocol, Any, Self, Mapping, runtime_checkable
 from types import TracebackType
 from asyncio import Lock
 
-
+@runtime_checkable
 class PydanticModel(Protocol):
     """Minimal Protocol for Pydantic BaseModel Operations"""
     
     def model_dump(self) -> dict[str, Any]: ...
     
-    def model_copy(self, *, deep: bool = False) -> Self: ...
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self: ...
     
     @classmethod
     def model_validate(cls, obj: Any) -> Self: ...
 
 
-class StateProtocol(PydanticModel):
+@runtime_checkable
+class StateProtocol(PydanticModel, Protocol):
     pass
 
 
-class SharedProtocol(PydanticModel):
+@runtime_checkable
+class SharedProtocol(PydanticModel, Protocol):
     lock: Lock
+    
 
 
 class State(BaseModel):
