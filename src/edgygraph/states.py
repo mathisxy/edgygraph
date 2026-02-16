@@ -18,11 +18,23 @@ class PydanticModel(Protocol):
 
 @runtime_checkable
 class StateProtocol(PydanticModel, Protocol):
+    """
+    Protocol of State.
+
+    The protocol is used to define the type of the state that the node expects.
+    The usage of protocols allows a more flexible approach to generic typing.
+    """
     pass
 
 
 @runtime_checkable
 class SharedProtocol(PydanticModel, Protocol):
+    """
+    Protocol of Shared.
+
+    The protocol is used to define the type of the shared state that the node expects.
+    The usage of protocols allows a more flexible approach to generic typing.
+    """
     lock: Lock
     
 
