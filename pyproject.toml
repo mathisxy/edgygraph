@@ -41,6 +41,7 @@ Repository = "https://github.com/mathisxy/edgygraph"
 Issues = "https://github.com/mathisxy/edgygraph/issues"
 
 [build-system]
-requires = ["setuptools", "setuptools_scm", "wheel"]
+requires = ["setuptools>=80", "setuptools_scm>=8", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools_scm]
