@@ -1,14 +1,13 @@
 from .nodes import START, END, Node
 from .states import StateProtocol as State, SharedProtocol as Shared
-from .rich import RichReprMixin
+from .graph_hooks import GraphHook
+from .diff import Change, ChangeConflictException, Diff
 from .logging import get_logger
 
-from typing import Type, Tuple, Any, Callable, Awaitable
+from typing import Type, Tuple, Callable, Awaitable
 from collections import defaultdict
 import asyncio
 from pydantic import BaseModel, ConfigDict, Field
-from enum import StrEnum, auto
-from collections import Counter
 import inspect
 
 logger = get_logger(__name__)
@@ -43,6 +42,8 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
     _edge_index: dict[Node[T, S] | Type[START], list[NextType[T, S]]] = defaultdict(list[NextType[T, S]])
     _instant_edge_index: dict[Node[T, S] | Type[START], list[NextType[T, S]]] = defaultdict(list[NextType[T, S]])
 
+    hooks: list[GraphHook[T, S]] = Field(default_factory=list[GraphHook[T, S]], exclude=True)
+
 
     def model_post_init(self, _) -> None:
         """
@@ -74,15 +75,6 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
                 case (source, next_node):
                     edges_index[source].append(next_node)
 
-        # for edge in edges:
-        #     sources = edge[0]
-            
-        #     if isinstance(sources, list):
-        #         for source in sources:
-        #             edges_index[source].append(edge[1])
-        #     else:
-        #         edges_index[sources].append(edge[1])
-
         return edges_index
 
 
@@ -99,6 +91,10 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
         Returns:
             New State instance and the same Shared instance
         """
+
+        # Debug hooks
+        for h in self.hooks: await h.on_graph_start(state, shared)
+
         
         current_nodes: list[Node[T, S]] | list[Node[T, S] | Type[START]] = [START]
 
@@ -111,19 +107,19 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
 
 
             current_instant_nodes: list[Node[T, S]] = next_nodes.copy()
+
             while True:
 
                 current_instant_nodes = await self.get_next_nodes(state, shared, current_instant_nodes, self._instant_edge_index)
                 
-                logger.debug("CURRENT INSTANT NODES: %s", current_instant_nodes)
-
                 if not current_instant_nodes:
                     break
                 
                 next_nodes.extend(current_instant_nodes)
 
-            logger.debug("NEXT NODES: %s", next_nodes)
 
+            # Debug hooks
+            for h in self.hooks: await h.on_step_start(state, shared, next_nodes)
 
             # Run parallel
             result_states: list[T] = []
@@ -136,12 +132,22 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
 
                     tg.create_task(task(state_copy, shared))
 
-            state = self.merge_states(state, result_states)
+            state = await self.merge_states(state, result_states)
 
             current_nodes = next_nodes
 
 
+            # Debug hooks
+            for h in self.hooks: await h.on_step_end(state, shared)
+
+
+        # Debug hooks
+        for h in self.hooks: await h.on_graph_end(state, shared)
+
+
         return state, shared
+    
+
 
     async def get_next_nodes(self, state: T, shared: S, current_nodes: list[Node[T, S]] | list[Node[T, S] | Type[START]], edge_index: dict[Node[T, S] | Type[START], list[NextType[T, S]]]) -> list[Node[T, S]]:
         """
@@ -186,7 +192,7 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
         return next_nodes
 
 
-    def merge_states(self, current_state: T, result_states: list[T]) -> T:
+    async def merge_states(self, current_state: T, result_states: list[T]) -> T:
         """
         Merges the result states into the current state.
         First the changes are calculated for each result state.
@@ -215,144 +221,28 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
 
             changes_list.append(Diff.recursive_diff(current_dict, result_dict))
         
-        logger.debug(f"CHANGES: %s", changes_list)
-        
+
+        # Debug hooks
+        for h in self.hooks: await h.on_merge_start(current_state, result_states, changes_list)
+
+
         conflicts = Diff.find_conflicts(changes_list)
 
         if conflicts:
+
+            # Debug hooks
+            for h in self.hooks: await h.on_merge_conflict(current_state, result_states, changes_list, conflicts)
+
             raise ChangeConflictException(f"Conflicts detected after parallel execution: {conflicts}")
+
 
         for changes in changes_list:
             Diff.apply_changes(current_dict, changes)
 
         state: T = state_class.model_validate(current_dict)
 
-        logger.debug("NEW STATE: %s", state)
+
+        # Debug hooks
+        for h in self.hooks: await h.on_merge_end(current_state, result_states, changes_list, state)
 
         return state
-    
-
-class ChangeTypes(StrEnum):
-    """
-    Enum for the types of changes that can be made to a State.
-    """
-
-    ADDED = auto()
-    REMOVED = auto()
-    UPDATED = auto()
-
-class Change(RichReprMixin, BaseModel):
-    """
-    Represents a change made to a State.
-    """
-
-    type: ChangeTypes
-    old: Any
-    new: Any
-
-
-
-class Diff:
-    """
-    Utility class for computing differences between states.
-    """
-
-
-    @classmethod
-    def find_conflicts(cls, changes: list[dict[str, Change]]) -> dict[str, list[Change]]:
-        """
-        Finds conflicts in a list of changes.
-
-        Args:
-           changes: A list of dictionaries representing changes to a state.
-        """
-
-        if len(changes) <= 1:
-            return {}
-        
-        counts = Counter(key for d in changes for key in d)
-
-        duplicate_keys = [k for k, count in counts.items() if count > 1]
-
-        conflicts: dict[str, list[Change]] = {}        
-        for key in duplicate_keys:
-            conflicts[key] = [d[key] for d in changes if key in d]
-
-        return conflicts
-
-
-    @classmethod
-    def recursive_diff(cls, old: Any, new: Any, path: str = "") -> dict[str, Change]:
-        """
-        Recursively computes the differences between two dictionaries.
-
-
-        Args:
-            old: Part of the old dictionary.
-            new: Part of the new dictionary.
-            path: The current path of the parts in the full dictionary, seperated with dots.
-
-        Returns:
-            A mapping of the path to the changes directly on that level.
-        """
-        
-        changes: dict[str, Change] = {}
-
-        if isinstance(old, dict) and isinstance(new, dict):
-            all_keys: set[str] = set(old.keys()) | set(new.keys()) #type: ignore
-
-            for key in all_keys:
-                current_path: str = f"{path}.{key}" if path else key
-
-                if key in old and not key in new:
-                    changes[current_path] = Change(type=ChangeTypes.REMOVED, old=old[key], new=None)
-                elif key in new and not key in old:
-                    changes[current_path] = Change(type=ChangeTypes.ADDED, old=None, new=new[key])
-                else:
-                    sub_changes = cls.recursive_diff(old[key], new[key], current_path)
-                    changes.update(sub_changes)
-
-        elif old != new:
-            changes[path] = Change(type=ChangeTypes.UPDATED, old=old, new=new)
-
-        return changes
-    
-
-    @classmethod
-    def apply_changes(cls, target: dict[str, Any], changes: dict[str, Change]) -> None:
-        """
-        Applies a set of changes to the target dictionary.
-
-
-        Args:
-            target: The dictionary to apply the changes to.
-            changes: A mapping of paths, separated by dots, to changes. The changes are applied in the dictionary on that level.
-        """
-
-        for path, change in changes.items():
-            parts = path.split(".")
-            cursor = target
-            
-            # Navigate down the dictionary
-            for part in parts[:-1]:
-                if part not in cursor:
-                    cursor[part] = {} # If the path was created because of ADDED
-                cursor = cursor[part]
-            
-            last_key = parts[-1]
-
-            if change.type == ChangeTypes.REMOVED:
-                if last_key in cursor:
-                    del cursor[last_key]
-            else:
-                # UPDATED or ADDED
-                cursor[last_key] = change.new
-
-
-
-class ChangeConflictException(Exception):
-    """
-    Exception raised when a conflict between changes to a state is detected.
-    """
-    pass
-
