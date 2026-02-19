@@ -3,8 +3,9 @@ from .states import StateProtocol as State, SharedProtocol as Shared
 from .graph_hooks import GraphHook
 from .diff import Change, ChangeConflictException, Diff
 
-from typing import Type, Tuple, Callable, Awaitable
+from typing import Type, Tuple, Callable, Awaitable, cast, Any
 from collections import defaultdict
+from collections.abc import Hashable
 import asyncio
 from pydantic import BaseModel, ConfigDict, Field
 import inspect
@@ -18,6 +19,9 @@ class Properties(BaseModel):
 type SourceType[T: State, S: Shared] = Node[T, S] | type[START] | list[Node[T, S] | type[START]] | type[Exception] | tuple[Node[T, S], type[Exception]] | tuple[list[Node[T, S]], type[Exception]]
 type NextType[T: State, S: Shared] = Node[T, S] | type[END] | Callable[[T, S], Node[T, S] | Type[END] | Awaitable[Node[T, S] | Type[END]]]
 type Edge[T: State, S: Shared] = tuple[SourceType[T, S], NextType[T, S]] | tuple[SourceType[T, S], NextType[T, S], Properties]
+
+type EdgeIndex[T: State, S: Shared] = Node[T, S] | type[START]
+type ErrorEdgeIndex[T: State, S: Shared] = type[Exception] | tuple[Node[T, S], type[Exception]]
 
 class Graph[T: State = State, S: Shared = Shared](BaseModel):
     """
@@ -40,9 +44,9 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
     edges: list[Edge[T, S]] = Field(default_factory=list[Edge[T, S]])
     # instant_edges: list[Edge[T, S]] = Field(default_factory=list[Edge[T, S]])
 
-    _edge_index: dict[Node[T, S] | Type[START], list[NextType[T, S]]] = defaultdict(list[NextType[T, S]])
-    _instant_edge_index: dict[Node[T, S] | Type[START], list[NextType[T, S]]] = defaultdict(list[NextType[T, S]])
-    _error_edge_index: dict[type[Exception] | tuple[Node[T, S], type[Exception]], list[NextType[T, S]]] = defaultdict(list[NextType[T, S]])
+    _edge_index: dict[EdgeIndex[T, S], list[NextType[T, S]]] = defaultdict(list)
+    _instant_edge_index: dict[EdgeIndex[T, S], list[NextType[T, S]]] = defaultdict(list)
+    _error_edge_index: dict[ErrorEdgeIndex[T, S], list[NextType[T, S]]] = defaultdict(list)
 
     hooks: list[GraphHook[T, S]] = Field(default_factory=list[GraphHook[T, S]], exclude=True)
 
@@ -96,7 +100,7 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
                     else:
                         self._edge_index[s].append(next)
 
-            elif isinstance(source, Node): # Single source
+            elif isinstance(source, Node) or source is START: # Single source
                 if properties.instant:
                     self._instant_edge_index[source].append(next)
                 else:
@@ -125,49 +129,46 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
             for h in self.hooks: await h.on_graph_start(state, shared)
 
             
-            current_nodes: list[Node[T, S]] | list[Node[T, S] | Type[START]] = [START]
+            next_nodes: list[Node[T, S]] = await self.get_next_nodes(state, shared, [START])
+
 
             while True:
-
-                next_nodes: list[Node[T, S]] = await self.get_next_nodes(state, shared, current_nodes, self._edge_index)
-
-                if not next_nodes:
-                    break # END
-
-
-                current_instant_nodes: list[Node[T, S]] = next_nodes.copy()
-
-                while True:
-
-                    current_instant_nodes = await self.get_next_nodes(state, shared, current_instant_nodes, self._instant_edge_index)
-                    
-                    if not current_instant_nodes:
-                        break
-                    
-                    next_nodes.extend(current_instant_nodes)
-
 
                 # Hook
                 for h in self.hooks: await h.on_step_start(state, shared, next_nodes)
 
+                if not next_nodes:
+                    break # END
+
                 # Run parallel
                 result_states: list[T] = []
 
-                async with asyncio.TaskGroup() as tg:
-                    for task in next_nodes:
-                        
-                        state_copy: T = state.model_copy(deep=True)
-                        result_states.append(state_copy)
+                try:
 
-                        tg.create_task(task(state_copy, shared))
+                    async with asyncio.TaskGroup() as tg:
+                        for task in next_nodes:
+                            
+                            state_copy: T = state.model_copy(deep=True)
+                            result_states.append(state_copy)
 
-                state = await self.merge_states(state, result_states)
+                            tg.create_task(self.task_wrapper(task, state_copy, shared))
 
-                current_nodes = next_nodes
+                    state = await self.merge_states(state, result_states)
 
 
-                # Hook
-                for h in self.hooks: await h.on_step_end(state, shared, next_nodes)
+                except ExceptionGroup as eg:
+
+                    # Hook
+                    for h in self.hooks: await h.on_step_end(state, shared, next_nodes)
+                    
+                    next_nodes = await self.get_next_nodes_from_error(state, shared, eg)
+                    
+                else:
+    
+                    # Hook
+                    for h in self.hooks: await h.on_step_end(state, shared, next_nodes)
+
+                    next_nodes = await self.get_next_nodes(state, shared, next_nodes)
 
 
             # Hook
@@ -191,10 +192,47 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
             return state, shared
 
 
+    async def task_wrapper(self, task: Node[T, S], state: T, shared: S):
+        try:
+            await task(state, shared)
+        except Exception as err:
+            err.source_node = task # type: ignore
+            raise err
+        
+
     
+    async def get_next_nodes_from_error(self, state: T, shared: S, eg: ExceptionGroup) -> list[Node[T, S]]:
+
+        next_nodes: list[Node[T, S]] = []
+        unhandled: list[Exception] = []
+
+        for e in eg.exceptions:
+
+            source_node: Node[T, S] | None = getattr(e, "source_node", None)
+
+            if not isinstance(source_node, Node):
+                unhandled.append(e)
+                continue
+
+            if type(e) in self._error_edge_index:
+                next_nodes.extend(
+                    await self.resolve_next_types(state, shared, self._error_edge_index[type(e)])
+                )
+
+            if (source_node, type(e)) in self._error_edge_index:
+                next_nodes.extend(
+                    await self.resolve_next_types(state, shared, self._error_edge_index[(source_node, type(e))])
+                )
+
+        
+        if unhandled:
+            raise ExceptionGroup("Unhandled node exceptions", unhandled)
+
+        return next_nodes
 
 
-    async def get_next_nodes(self, state: T, shared: S, current_nodes: list[Node[T, S]] | list[Node[T, S] | Type[START]], edge_index: dict[Node[T, S] | Type[START], list[NextType[T, S]]]) -> list[Node[T, S]]:
+
+    async def get_next_nodes(self, state: T, shared: S, current_nodes: list[Node[T, S]] | list[Node[T, S] | Type[START]]) -> list[Node[T, S]]:
         """
         Args:
             state: The current state
@@ -207,13 +245,43 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
         """
 
 
-        next_types: list[NextType[T, S]] = []
+        next_nodes: list[Node[T, S]] = []
 
+
+        # Regular nodes
         for current_node in current_nodes:
 
             # Find the edge corresponding to the current node
-            next_types.extend(edge_index[current_node])
+            next_nodes.extend(
+                await self.resolve_next_types(state, shared, 
+                    self._edge_index[current_node]
+                )
+            )
 
+
+        # Instant nodes
+        current_instant_nodes: list[Node[T, S]] = next_nodes.copy()
+
+        while True:
+
+            current_next_types = [
+                next
+                for node in current_instant_nodes 
+                for next in self._instant_edge_index[node]
+            ]
+            
+            if not current_next_types:
+                break
+            
+            current_instant_nodes = await self.resolve_next_types(state, shared, current_next_types)
+            next_nodes.extend(current_instant_nodes)
+
+
+        return next_nodes
+
+    
+
+    async def resolve_next_types(self, state: T, shared: S, next_types: list[NextType[T, S]]) -> list[Node[T, S]]:
 
         next_nodes: list[Node[T, S]] = []
         for next in next_types:
@@ -237,6 +305,7 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
         return next_nodes
 
 
+
     async def merge_states(self, current_state: T, result_states: list[T]) -> T:
         """
         Merges the result states into the current state.
@@ -257,10 +326,10 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
         """
             
         result_dicts = [state.model_dump() for state in result_states]
-        current_dict = current_state.model_dump()
+        current_dict = cast(dict[Hashable, Any], current_state.model_dump())
         state_class = type(current_state)
 
-        changes_list: list[dict[str, Change]] = []
+        changes_list: list[dict[tuple[Hashable, ...], Change]] = []
 
         for result_dict in result_dicts:
 

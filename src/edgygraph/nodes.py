@@ -1,7 +1,6 @@
-from .states import StateProtocol, SharedProtocol
-
 from abc import ABC, abstractmethod
 
+from .states import StateProtocol, SharedProtocol
 
 class Node[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol](ABC):
     """
@@ -33,6 +32,30 @@ class Node[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol]
             None. The instance references of the arguments are used in the graph to enable variance.
         """
         pass
+
+
+    # @classmethod
+    # def from_func(cls: type["Node[T, S]"], func: Callable[[T, S], None | Awaitable[None]]) -> "Node[T, S]":
+    #     """
+    #     Create a node from a function.
+
+    #     Convenience method to create a node from a function.
+    #     The function can be synchronous or asynchronous.
+
+    #     Args:
+    #         func: The function for the node to execute.
+    #     """
+    #     class FunctionNode(Node[T, S]):
+
+    #         async def __call__(self, state: T, shared: S) -> None:
+
+    #             result = func(state, shared)
+
+    #             if inspect.isawaitable(result):
+    #                 await result
+
+    #     return FunctionNode()
+
 
 
 class START:

@@ -1,4 +1,6 @@
 from abc import ABC
+from collections.abc import Hashable
+
 from .nodes import Node
 from .states import StateProtocol as State, SharedProtocol as Shared
 from .diff import Change, ChangeTypes
@@ -60,7 +62,7 @@ class GraphHook[T: State, S: Shared](ABC):
         pass
 
 
-    async def on_merge_start(self, state: T, result_states: list[T], changes: list[dict[str, "Change"]]) -> None:
+    async def on_merge_start(self, state: T, result_states: list[T], changes: list[dict[tuple[Hashable, ...], "Change"]]) -> None:
         """
         Called when the merge process starts.
         
@@ -73,7 +75,7 @@ class GraphHook[T: State, S: Shared](ABC):
         pass
 
 
-    async def on_merge_conflict(self, state: T, result_states: list[T], changes: list[dict[str, Change]], conflicts: dict[str, list["Change"]]) -> None:
+    async def on_merge_conflict(self, state: T, result_states: list[T], changes: list[dict[tuple[Hashable, ...], Change]], conflicts: dict[tuple[Hashable, ...], list["Change"]]) -> None:
         """
         Called when a merge conflict occurs.
         
@@ -87,7 +89,7 @@ class GraphHook[T: State, S: Shared](ABC):
         pass
 
 
-    async def on_merge_end(self, state: T, result_states: list[T], changes: list[dict[str, "Change"]], merged_state: T) -> None:
+    async def on_merge_end(self, state: T, result_states: list[T], changes: list[dict[tuple[Hashable, ...], "Change"]], merged_state: T) -> None:
         """
         Called when the merge process ends.
         
@@ -168,7 +170,7 @@ class InteractiveDebugHook[T: State, S: Shared](GraphHook[T, S]):
         ))
         self._pause()
 
-    async def on_merge_conflict(self, state: T, result_states: list[T], changes: list[dict[str, Change]], conflicts: dict[str, list[Change]]):
+    async def on_merge_conflict(self, state: T, result_states: list[T], changes: list[dict[tuple[Hashable, ...], Change]], conflicts: dict[tuple[Hashable, ...], list[Change]]):
         self.console.print(Panel(
             f"[bold white]Conflict detected in {len(conflicts)} property path(s)![/]",
             title="ERROR: MERGE CONFLICT",
@@ -194,7 +196,7 @@ class InteractiveDebugHook[T: State, S: Shared](GraphHook[T, S]):
         self.console.print("[bold red]Note:[/bold red] The graph cannot merge these branches automatically.")
         self._pause()
 
-    async def on_merge_end(self, state: T, result_states: list[T], changes: list[dict[str, Change]], merged_state: T):
+    async def on_merge_end(self, state: T, result_states: list[T], changes: list[dict[tuple[Hashable, ...], Change]], merged_state: T):
         self.console.print(Rule("[bold cyan]Merge Result", style="cyan"))
 
         if not any(changes):
