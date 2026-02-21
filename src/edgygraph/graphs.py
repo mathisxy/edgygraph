@@ -20,18 +20,56 @@ from .types import  \
 
 class Graph[T: State = State, S: Shared = Shared](BaseModel):
     """
-    Create and execute a graph defined by a list of edges.
+    Create and execute a graph defined by a list of edges
 
-    Set the required State and Shared classes via the Generic Typing Parameters.
-    Because of variance its possible to use nodes, that use more general State and Shared classes (ancestors) as the Generic Typing Parameters.
-    For the more flexible duck typing approch, that scales easier, use StateProtocol and SharedProtocol as Generic Typing Parameters.
+    <br>
 
-    The edges are defined as a list of tuples, where the first element is the source node and the second element reveals the next node.
+    ### Generic Typing Parameters 
+
+    Use protocols or classes that extend **StateProtocol** and **SharedProtocol** or **State** and **Shared** to define the supported state types.
+
+    #### Inheritance with Variance
+
+    With covariance its possible to use nodes that use more specific State and Shared classes as the generic typing parameters. Requires an inheritance structure.
+
+    This is recommended for smaller projects because it needs less boilerplate.
+
+    #### Duck Typing
+
+    For the more flexible approach with better scaling use protocols to define the supported state types. Remember to always extend `typing.Protocol` in the child classes for typing.
+
+    This is recommended for scalable projects where many different state types need to be joined in one graph. See https://github.com/mathisxy/edgynodes/ for an example.
+
+    #### Disable Type Checking
+
+    If you want to disable type checking for the graph, you can use `typing.Any` as generic typing parameters in the graph.
+
+    <br>
+
+    ### Edges
+
+    The edges are defined as a list of tuples, where the first element is the source and the second element reveals the next node.
+
+    #### Formats
+
+    The graph supports different formats for the edges.
+
+    - `(source, target)`: A single edge from source to target.
+    - `(START, target)`: A single edge from the start of the graph to target.
+    - `(source, END)`: A single edge from source to the end of the graph. It equals to `(source, None)`. It is redundant but can be used for better readability.
+    - `([source1, source2], target)`: Multiple edges from source1 and source2 to target.
+    - `(source, [target1, target2])`: Multiple edges from source to target1 and target2.
+    - `([source1, source2], [target1, target2])`: Multiple edges from source1 and source2 to target1 and target2. This will create 4 edges in total.
+    - `(source, lambda st, sh: [target1, target2] if sh.x)`: A dynamic edge from source to target. The function takes the state and the shared state as arguments. It must return a node, a list of nodes, END or None. Async functions are also supported. They are executed sequentially so there are no race conditions.
+    - `(source, target, Config(instant=True))`: An instant edge from source to target. The target nodes are collected recursively and executed parallel to the source node. Make sure not to create cycles.
+    - `(ValueError, target)`: An error edge from ValueError to target. The edge is traversed if a node, which is executed by an incoming edge located BEFORE this error edge in the edge list, throws a ValueError.
+    - `((source, Exception), target)`: An error edge from Exception to target. The edge is traversed if the source node is executed by an incoming edge which is located BEFORE this error edge in the edge list throws an Exception. Source node lists are also supported.
+    - `(Exception, target, ErrorConfig(propagate=True))`: If propagate is True, the exception is propagated to the next error edges in the edge list. If the exception is not handled by any error edge, it is ultimately raised.
+
 
     Attributes:
-        edges: A list of edges of compatible nodes that build the graph
-        instant_edges: A list of edges of compatible nodes that run parallel to there source node
-        error_edges: A list of edges of compatible nodes that run if the source node raises an exception
+        edges: A list of edges of compatible nodes that build the graph.
+        hooks: A list of graph hook classes. Usable for debugging, logging and custom logic.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
