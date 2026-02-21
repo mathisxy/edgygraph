@@ -4,5 +4,6 @@ nav:
     - States: states.md
     - Types: types.md
     - Diff: diff.md
-    - Graph Hooks: graph_hooks.md
+    - Hooks: hooks.md
+    - Graph Hooks: graph_hooks
     - Repr. Mixin: rich.md

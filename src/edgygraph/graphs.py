@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .nodes import START, Node
 from .states import StateProtocol as State, SharedProtocol as Shared
-from .graph_hooks import GraphHook
+from .hooks import GraphHook
 from .diff import Change, ChangeConflictException, Diff
 from .types import  \
     Edge, ErrorEdge, \
@@ -15,10 +15,6 @@ from .types import  \
     Config, ErrorConfig, \
     Entry, ErrorEntry, Entries, \
     NextNode
-
-    
-    
-
 
 
 
