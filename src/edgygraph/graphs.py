@@ -3,9 +3,9 @@ from typing import Tuple, cast, Any, Sequence
 from collections import defaultdict
 from collections.abc import Hashable
 import asyncio
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SkipValidation
 
-from .nodes import START, Node
+from .nodes import START, END, Node # type: ignore
 from .states import StateProtocol as State, SharedProtocol as Shared
 from .hooks import GraphHook
 from .diff import Change, ChangeConflictException, Diff
@@ -13,6 +13,7 @@ from .types import  \
     Edge, ErrorEdge, \
     SingleSource, SingleErrorSource, \
     Config, ErrorConfig, \
+    NodeTupel, is_node_tupel, \
     Entry, ErrorEntry, Entries, \
     NextNode
 
@@ -64,7 +65,7 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
     - `(source, target, Config(instant=True))`: An instant edge from source to target. The target nodes are collected recursively and executed parallel to the source node. Make sure not to create cycles.
     - `(ValueError, target)`: An error edge from ValueError to target. The edge is traversed if a node, which is executed by an incoming edge located BEFORE this error edge in the edge list, throws a ValueError.
     - `((source, Exception), target)`: An error edge from Exception to target. The edge is traversed if the source node is executed by an incoming edge which is located BEFORE this error edge in the edge list throws an Exception. Source node lists are also supported.
-    - `(Exception, target, ErrorConfig(propagate=True))`: If propagate is True, the exception is propagated to the next error edges in the edge list. If the exception is not handled by any error edge, it is ultimately raised.
+    - `(Exception, target, ErrorConfig(propagate=True))`: If propagate is `True`, the exception is propagated to the next error edges in the edge list. If the exception is not handled by any error edge, it is ultimately raised.
 
 
     Attributes:
@@ -74,7 +75,7 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    edges: Sequence[Edge[T, S] | ErrorEdge[T, S]] = Field(default_factory=list[Edge[T, S] | ErrorEdge[T, S]])
+    edges: Sequence[Edge[T, S] | ErrorEdge[T, S] | SkipValidation[NodeTupel[T, S]]] = Field(default_factory=list[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S]])
     hooks: Sequence[GraphHook[T, S]] = Field(default_factory=list[GraphHook[T, S]], exclude=True)
 
     edge_index: dict[SingleSource[T, S], list[Entry[T, S]]] = Field(default_factory=lambda: defaultdict(list), init=False)
@@ -100,6 +101,14 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
         """
 
         for i, edge in enumerate(self.edges):
+
+            # Node Sequence
+            if is_node_tupel(edge):
+                edge = cast(NodeTupel[T, S], edge)
+                for source, next in zip(edge, edge[1:]):
+                    if isinstance(source, type): assert source is START, f"Unexpected type in node sequence: {source}"
+                    self.edge_index[source].append(Entry[T, S](next=next, config=Config(), index=i))
+                continue
 
             match edge:
                 case (source, next, config): pass
@@ -262,6 +271,7 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
         for e in eg.exceptions:
 
             print(e)
+            
 
             source_node: NextNode[T, S] | None = getattr(e, "source_node", None)
 

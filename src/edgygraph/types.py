@@ -6,6 +6,8 @@ from .nodes import Node, END, START
 from .states import StateProtocol as State, SharedProtocol as Shared
 
 
+type NodeTupel[T: State, S: Shared] = tuple[type[START] | Node[T, S], *tuple[Node[T, S], ...]] | tuple[Node[T, S] | type[START], *tuple[Node[T, S], ...], type[END]]
+
 type SingleSource[T: State, S: Shared] = Node[T, S] | type[START]
 type Source[T: State, S: Shared] = SingleSource[T, S] | list[SingleSource[T, S]]
 
@@ -18,6 +20,29 @@ type Next[T: State, S: Shared] = ResolvedNext[T, S] | Callable[[T, S], ResolvedN
 
 type Edge[T: State, S: Shared] = tuple[Source[T, S], Next[T, S]] | tuple[Source[T, S], Next[T, S], Config]
 type ErrorEdge[T: State, S: Shared] = tuple[ErrorSource[T, S], Next[T, S]] | tuple[ErrorSource[T, S], Next[T, S], ErrorConfig]
+
+
+def is_node_tupel(edge: tuple[Any, ...]) -> bool:
+
+    if len(edge) < 2:
+        return False
+
+    if is_only_node_tuple(edge):
+        return True
+    
+    if edge[0] is START and is_only_node_tuple(edge[1:]):
+        return True
+    
+    if edge[0] is START and is_only_node_tuple(edge[1:-1]) and edge[-1] is END:
+        return True
+    
+    if is_only_node_tuple(edge[:-1]) and edge[-1] is END:
+        return True
+    
+    return False
+
+def is_only_node_tuple(edge: tuple[Any, ...]) -> bool:
+    return all(isinstance(n, Node) for n in edge)
 
 
 class Config(BaseModel):
