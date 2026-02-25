@@ -104,7 +104,7 @@ class Diff:
 
         Args:
             target: The dictionary to apply the changes to.
-            changes: A mapping of paths, separated by dots, to changes. The changes are applied in the dictionary on that level.
+            changes: A mapping of paths to changes. The paths are tuples of keys that lead to the value that needs to changes. The changes are applied in the dictionary on that level.
         """
 
         for path, change in changes.items():

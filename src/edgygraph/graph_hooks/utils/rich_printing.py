@@ -38,7 +38,11 @@ class GraphRenderer[T: State, S: Shared]:
 
     def render_graph_end(self, state: T, shared: S) -> None:
         self.console.print(Rule("[bold green]Graph Execution Finished", style="green"))
-        self.console.print(Panel(Pretty(state), title="Final State", border_style="green"))
+        # self.console.print(Panel(Pretty(state), title="Final State", border_style="green"))
+        self.console.print(Columns([
+            Panel(Pretty(state), title="Final State", border_style="blue"),
+            Panel(Pretty(shared), title="Final Shared", border_style="cyan"),
+        ]))
 
     # -------------------------------------------------------------------------
     # Step lifecycle
@@ -56,9 +60,17 @@ class GraphRenderer[T: State, S: Shared]:
             expand=False,
         ))
 
-    def render_step_end(self, state: T, shared: S, nodes: list[NextNode[T, S]]) -> None:
+    def render_step_end_rule(self, nodes: list[NextNode[T, S]]) -> None:
         node_names = self._node_names(nodes)
         self.console.print(Rule(f"[bold blue]Step Completed: {node_names}", style="blue"))
+
+    def render_step_end_footer(self, nodes: list[NextNode[T, S]]) -> None:
+        node_names = self._node_names(nodes)
+        self.console.print(f"[dim]Finished executing: {node_names}[/dim]")
+
+
+    def render_step_end(self, state: T, shared: S, nodes: list[NextNode[T, S]]) -> None:
+        self.render_step_end_rule(nodes)
 
         table = Table(
             title="Post-Step Snapshot",
@@ -73,7 +85,7 @@ class GraphRenderer[T: State, S: Shared]:
         table.add_row("SHARED", Panel(Pretty(shared), border_style="yellow", title="Shared State"))
 
         self.console.print(table)
-        self.console.print(f"[dim]Finished executing: {node_names}[/dim]")
+        self.render_step_end_footer(nodes)
 
     # -------------------------------------------------------------------------
     # Merge lifecycle

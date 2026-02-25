@@ -1,31 +1,26 @@
 
-from typing import Tuple, cast, Any, Sequence
+from __future__ import annotations
+
+from typing import cast, Any, Sequence, Hashable
 from collections import defaultdict
 from collections.abc import Hashable
 import asyncio
 from pydantic import BaseModel, ConfigDict, Field, SkipValidation
 
-from .nodes import START, END, Node # type: ignore
-from .states import StateProtocol as State, SharedProtocol as Shared
+from .nodes import START, END, Node
+from .states import StateProtocol, SharedProtocol
 from .hooks import GraphHook
 from .diff import Change, ChangeConflictException, Diff
-from .types import  \
-    Edge, ErrorEdge, \
-    SingleSource, SingleErrorSource, \
-    Config, ErrorConfig, \
-    NodeTupel, is_node_tupel, \
-    Entry, ErrorEntry, Entries, \
-    NextNode
+from .types import  NodeTupel, SingleSource, SingleErrorSource, SingleNext, Edge, ErrorEdge, Entries, Entry, ErrorEntry, NextNode, is_node_tupel, Config, ErrorConfig
 
 
 
-class Graph[T: State = State, S: Shared = Shared](BaseModel):
+class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol](BaseModel):
     """
     Create and execute a graph defined by a list of edges
 
-    <br>
 
-    ### Generic Typing Parameters 
+    ## Generic Typing Parameters 
 
     Use protocols or classes that extend **StateProtocol** and **SharedProtocol** or **State** and **Shared** to define the supported state types.
 
@@ -45,9 +40,8 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
 
     If you want to disable type checking for the graph, you can use `typing.Any` as generic typing parameters in the graph.
 
-    <br>
-
-    ### Edges
+    
+    ## Edges
 
     The edges are defined as a list of tuples, where the first element is the source and the second element reveals the next node.
 
@@ -75,21 +69,150 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    edges: Sequence[Edge[T, S] | ErrorEdge[T, S] | SkipValidation[NodeTupel[T, S]]] = Field(default_factory=list[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S]])
-    hooks: Sequence[GraphHook[T, S]] = Field(default_factory=list[GraphHook[T, S]], exclude=True)
+    edges: Sequence[Edge[T, S] | ErrorEdge[T, S] | SkipValidation[NodeTupel[T, S]]] = Field(default_factory=lambda: [])
+    hooks: Sequence[GraphHook[T, S]] = Field(default_factory=lambda: [])
+
+    # edge_index: dict[SingleSource[T, S], list[Entry[T, S]]] = Field(default_factory=lambda: defaultdict(list), init=False)
+    # error_edge_index: dict[SingleErrorSource[T, S], list[ErrorEntry[T, S]]] = Field(default_factory=lambda: defaultdict(list), init=False)
+
+    # branches: list[Branch[T, S]] = Field(default_factory=lambda: [], init=False)
+
+    join_registry: dict[SingleNext[T, S], list[Branch[T, S]]] = Field(default_factory=lambda: defaultdict(list), init=False)
+    end_states: list[dict[tuple[Hashable, ...], Change]] = Field(default_factory=lambda: [], init=False)
+
+
+    @property
+    def task_group(self) -> asyncio.TaskGroup:
+        if self.tg is None:
+            raise RuntimeError("TaskGroup not initialized")
+        return self.tg
+    
+    tg: asyncio.TaskGroup | None = Field(default=None, init=False)
+
+
+
+
+    async def __call__(self, state: T, shared: S) -> tuple[T, S]:
+        """
+        Run the graph on the given state and shared state.
+        """
+
+        # Hook
+        for h in self.hooks: await h.on_graph_start(state, shared)
+
+        async with asyncio.TaskGroup() as tg:
+
+            # Initialization
+            self.tg = tg
+            self.spawn_branch(state, shared, Branch[T, S](graph=self, edges=self.edges))
+
+        state_dict: dict[Hashable, Any] = cast(dict[Hashable, Any], state.model_dump())
+
+        for end_state in self.end_states:
+            Diff.apply_changes(state_dict, end_state)
+
+        # Final state
+        final_state = state.model_validate(state_dict)
+
+        # Hook
+        for h in self.hooks: await h.on_graph_end(final_state, shared)
+
+        return final_state, shared
+
+
+            
+    def spawn_branch(self, state: T, shared: S, branch: Branch[T, S]) -> None:
+
+        branch = Branch[T, S](graph=self, edges=self.edges)
+
+        self.join_registry[branch.join].append(branch)
+
+        self.task_group.create_task(branch(state, shared))
+
+
+
+    async def merge_states(self, current_state: T, result_states: list[T]) -> T:
+        """
+        Merges the result states into the current state.
+        First the changes are calculated for each result state.
+        Then the changes are checked for conflicts.
+        If there are conflicts, a ChangeConflictException is raised.
+        The changes are applied in the order of the result states list.
+
+        Args:
+            current_state: The current state
+            result_states: The result states
+
+        Returns:
+            The new merged State instance.
+
+        Raises:
+            ChangeConflictException: If there are conflicts in the changes.
+        """
+            
+        result_dicts = [state.model_dump() for state in result_states]
+        current_dict = cast(dict[Hashable, Any], current_state.model_dump())
+        state_class = type(current_state)
+
+        changes_list: list[dict[tuple[Hashable, ...], Change]] = []
+
+        hooks = self.hooks
+
+
+        for result_dict in result_dicts:
+
+            changes_list.append(Diff.recursive_diff(current_dict, result_dict))
+        
+
+        # Hook
+        for h in hooks: await h.on_merge_start(current_state, result_states, changes_list)
+
+
+        conflicts = Diff.find_conflicts(changes_list)
+
+        if conflicts:
+
+            # Hook
+            for h in hooks: await h.on_merge_conflict(current_state, result_states, changes_list, conflicts)
+
+            raise ChangeConflictException(f"Conflicts detected after parallel execution: {conflicts}")
+
+
+        for changes in changes_list:
+            Diff.apply_changes(current_dict, changes)
+
+        state: T = state_class.model_validate(current_dict)
+
+
+        # Hook
+        for h in hooks: await h.on_merge_end(current_state, result_states, changes_list, state)
+
+        return state
+    
+
+
+class Branch[T: StateProtocol, S: SharedProtocol](BaseModel):
+
+    """
+    A branch of the graph.
+    """
+    
+    graph: Graph[T, S]
+    edges: Sequence[Edge[T, S] | ErrorEdge[T, S] | SkipValidation[NodeTupel[T, S]]] = Field(default_factory=lambda: [])
+
+    join: SingleNext[T, S] = Field(default_factory=lambda: None)
+
+    result: asyncio.Future[dict[tuple[Hashable, ...], Change]] | None = Field(default_factory=lambda: None, init=False)
 
     edge_index: dict[SingleSource[T, S], list[Entry[T, S]]] = Field(default_factory=lambda: defaultdict(list), init=False)
     error_edge_index: dict[SingleErrorSource[T, S], list[ErrorEntry[T, S]]] = Field(default_factory=lambda: defaultdict(list), init=False)
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def model_post_init(self, _) -> None:
-        """
-        Index the edges after the model is initialized.
-        """
 
+    def model_post_init(self, context: Any) -> None:
         self.index_edges()
 
-        
 
     def index_edges(self) -> None:
         """
@@ -107,6 +230,8 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
                 edge = cast(NodeTupel[T, S], edge)
                 for source, next in zip(edge, edge[1:]):
                     if isinstance(source, type): assert source is START, f"Unexpected type in node sequence: {source}"
+                    if isinstance(next, type): assert next is END, f"Unexpected type in node sequence: {next}"
+                    assert isinstance(source, (Node, type)), f"Unexpected source type in node sequence: {source}"
                     self.edge_index[source].append(Entry[T, S](next=next, config=Config(), index=i))
                 continue
 
@@ -140,11 +265,10 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
             else:
                 raise ValueError(f"Invalid edge source: {edge[0]}")
 
-
-
-    async def __call__(self, state: T, shared: S) -> Tuple[T, S]:
+    
+    async def __call__(self, state: T, shared: S) -> None:
         """
-        Execute the graph based on the edges
+        Execute the branch based on the edges
 
         Args:
             state: State of the first generic type of the graph or a subtype
@@ -154,25 +278,24 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
             New State instance and the same Shared instance
         """
 
+        self.result = asyncio.Future()
+
+        initial_state = state.model_copy()
+
         try:
-
-            # Hook
-            for h in self.hooks: await h.on_graph_start(state, shared)
-
             
             next_nodes: list[NextNode[T, S]] = await self.get_next(state, shared, START)
 
 
-            while True:
+            while next_nodes:
 
                 # Hook
-                for h in self.hooks: await h.on_step_start(state, shared, next_nodes)
-
-                if not next_nodes:
-                    break # END
+                for h in self.graph.hooks: await h.on_step_start(state, shared, next_nodes)
 
                 # Run parallel
                 result_states: list[T] = []
+
+                state = await self.join_branches(state, next_nodes)
 
                 try:
 
@@ -184,7 +307,8 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
 
                             tg.create_task(self.node_wrapper(state_copy, shared, node))
 
-                    state = await self.merge_states(state, result_states)
+                    # Merge
+                    state = await self.graph.merge_states(state, result_states)
 
 
                 except ExceptionGroup as eg:
@@ -193,7 +317,7 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
                     print(eg)
 
                     # Hook
-                    for h in self.hooks: await h.on_step_end(state, shared, next_nodes)
+                    for h in self.graph.hooks: await h.on_step_end(state, shared, next_nodes)
                     
                     next_nodes = await self.get_next_from_error(state, shared, eg)
 
@@ -202,22 +326,15 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
                 else:
     
                     # Hook
-                    for h in self.hooks: await h.on_step_end(state, shared, next_nodes)
+                    for h in self.graph.hooks: await h.on_step_end(state, shared, next_nodes)
 
                     next_nodes = await self.get_next(state, shared, next_nodes)
-
-
-            # Hook
-            for h in self.hooks: await h.on_graph_end(state, shared)
-
-
-            return state, shared
         
 
         except Exception as e:
             
             # Hook
-            for h in self.hooks:
+            for h in self.graph.hooks:
                 e = await h.on_error(e, state, shared)
                 if e is None: 
                     break
@@ -225,8 +342,9 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
             if e:
                 raise e
         
-            return state, shared
+        self.result.set_result(Diff.recursive_diff(initial_state.model_dump(), state.model_dump()))
 
+        
 
     async def node_wrapper(self, state: T, shared: S, node: NextNode[T, S]):
         """
@@ -249,7 +367,92 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
             raise e
         
 
+    async def join_branches(self, state: T, next_nodes: list[NextNode[T, S]]) -> T:
+        """
+        Join all branches that join on one of the next nodes.
+
+        Args:
+            state: The state of the graph.
+            next_nodes: The next nodes to execute.
+
+        Returns:
+            The merged state of the graph after joining the branches.
+        """
+
+        state_dict = cast(dict[Hashable, Any], state.model_dump())
+
+        for node in next_nodes:
+            for branch in self.graph.join_registry[node.node]:
+
+                if branch.result is None:
+                    raise ValueError(f"Branch {branch} has no result")
+
+                Diff.apply_changes(
+                    state_dict,
+                    await branch.result
+                )
+
+                self.graph.join_registry[node.node].remove(branch)
+
+        return state.model_validate(state_dict)
+
+
+
+    async def get_next(self, state: T, shared: S, current_nodes: Sequence[NextNode[T, S]] | type[START]) -> list[NextNode[T, S]]:
+        """
+        Get the next nodes to run based on the current nodes and the graph's edges.
+
+        Callable edges are called with the state and shared state.
+
+        Args:
+            state: The current state
+            shared: The shared state
+            current_nodes: The current nodes
+
+        Returns:
+           The list of the next nodes including their edges that they were reached by.
+        """
+
+
+        next_list: list[NextNode[T, S]] = []
+
+        if isinstance(current_nodes, type): # START
+            next_list.extend(
+                await self.resolve_entries_and_spawn_branches(state, shared, self.edge_index[START])
+            )
+
+        else: # Regular nodes
+            for current_node in current_nodes:
+
+                # Find the edge corresponding to the current node
+                next_list.extend(
+                    await self.resolve_entries_and_spawn_branches(state, shared, self.edge_index[current_node.node])
+                )
+
+
+        # Instant nodes
+        current_instant_next_list: list[NextNode[T, S]] = []
+
+        while True:
+
+            current_entries = [
+                entry
+                for next in current_instant_next_list 
+                for entry in self.edge_index[next.node]
+                if entry.config.instant
+            ]
+            
+            if not current_entries:
+                break
+            
+            current_instant_next_list = await self.resolve_entries_and_spawn_branches(state, shared, current_entries)
+            next_list.extend(current_instant_next_list)
+
+
+        return next_list
     
+
+
     async def get_next_from_error(self, state: T, shared: S, eg: ExceptionGroup) -> list[NextNode[T, S]]:
         """
         Get the next nodes to execute from the error.
@@ -289,7 +492,10 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
             entries.sort(key=lambda x: x.index)
             for entry in entries:
                 if entry.index > source_node.reached_by.index: # If the error entry is after the node that raised the error
-                    next_nodes.extend(await entry(state, shared))
+                    next_nodes.extend(
+                        await self.resolve_entries_and_spawn_branches(state, shared, [entry])
+                    )
+
                     print(entry)
                     if not entry.config.propagate:
                         break
@@ -301,6 +507,7 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
             raise ExceptionGroup("Unhandled node exceptions", unhandled)
 
         return next_nodes
+    
 
 
     def match_error(self, e: Exception, source: SingleErrorSource[T, S], source_node: NextNode[T, S]) -> bool:
@@ -312,120 +519,14 @@ class Graph[T: State = State, S: Shared = Shared](BaseModel):
                 return node == source_node.node and isinstance(e, error_type)
 
 
-    async def get_next(self, state: T, shared: S, current_nodes: Sequence[NextNode[T, S]] | type[START]) -> list[NextNode[T, S]]:
-        """
-        Get the next nodes to run based on the current nodes and the graph's edges.
-
-        Callable edges are called with the state and shared state.
-
-        Args:
-            state: The current state
-            shared: The shared state
-            current_nodes: The current nodes
-
-        Returns:
-           The list of the next nodes including their edges that they were reached by.
-        """
-
-
-        next_list: list[NextNode[T, S]] = []
-
-        if isinstance(current_nodes, type): # START
-            next_list.extend(
-                await self.resolve_entries(state, shared, self.edge_index[START])
-            )
-
-        else: # Regular nodes
-            for current_node in current_nodes:
-
-                # Find the edge corresponding to the current node
-                next_list.extend(
-                    await self.resolve_entries(state, shared, self.edge_index[current_node.node])
-                )
-
-
-        # Instant nodes
-        current_instant_next_list: list[NextNode[T, S]] = []
-
-        while True:
-
-            current_entries = [
-                entry
-                for next in current_instant_next_list 
-                for entry in self.edge_index[next.node]
-                if entry.config.instant
-            ]
-            
-            if not current_entries:
-                break
-            
-            current_instant_next_list = await self.resolve_entries(state, shared, current_entries)
-            next_list.extend(current_instant_next_list)
-
-
-        return next_list
-
-
-    async def resolve_entries(self, state: T, shared: S, entries: Sequence[Entries[T, S]]) -> list[NextNode[T, S]]:
+    async def resolve_entries_and_spawn_branches(self, state: T, shared: S, entries: Sequence[Entries[T, S]]) -> list[NextNode[T, S]]:
+        
+        for branch in [branch for branch in entries if isinstance(branch, Branch)]:
+            self.graph.spawn_branch(state, shared, branch)
 
         return [
             next_node
             for entry in entries
-            for next_node in await entry(state, shared)
+            for next_node in await entry(state, shared, self.graph) 
+            if isinstance(next_node, NextNode)
         ]
-
-
-    async def merge_states(self, current_state: T, result_states: list[T]) -> T:
-        """
-        Merges the result states into the current state.
-        First the changes are calculated for each result state.
-        Then the changes are checked for conflicts.
-        If there are conflicts, a ChangeConflictException is raised.
-        The changes are applied in the order of the result states list.
-
-        Args:
-            current_state: The current state
-            result_states: The result states
-
-        Returns:
-            The new merged State instance.
-
-        Raises:
-            ChangeConflictException: If there are conflicts in the changes.
-        """
-            
-        result_dicts = [state.model_dump() for state in result_states]
-        current_dict = cast(dict[Hashable, Any], current_state.model_dump())
-        state_class = type(current_state)
-
-        changes_list: list[dict[tuple[Hashable, ...], Change]] = []
-
-        for result_dict in result_dicts:
-
-            changes_list.append(Diff.recursive_diff(current_dict, result_dict))
-        
-
-        # Hook
-        for h in self.hooks: await h.on_merge_start(current_state, result_states, changes_list)
-
-
-        conflicts = Diff.find_conflicts(changes_list)
-
-        if conflicts:
-
-            # Hook
-            for h in self.hooks: await h.on_merge_conflict(current_state, result_states, changes_list, conflicts)
-
-            raise ChangeConflictException(f"Conflicts detected after parallel execution: {conflicts}")
-
-
-        for changes in changes_list:
-            Diff.apply_changes(current_dict, changes)
-
-        state: T = state_class.model_validate(current_dict)
-
-
-        # Hook
-        for h in self.hooks: await h.on_merge_end(current_state, result_states, changes_list, state)
-
-        return state
