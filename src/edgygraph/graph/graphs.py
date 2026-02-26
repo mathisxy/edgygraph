@@ -1,9 +1,9 @@
 
 from __future__ import annotations
 
-from typing import cast, Any, Sequence, Hashable
+from typing import cast, Any, Hashable
 from collections import defaultdict
-from collections.abc import Hashable
+from collections.abc import Hashable, Sequence
 import asyncio
 import inspect
 
@@ -25,19 +25,19 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
     Use protocols or classes that extend **StateProtocol** and **SharedProtocol** or **State** and **Shared** to define the supported state types.
 
-    #### Inheritance with Variance
+    ### Inheritance with Variance
 
     With covariance its possible to use nodes that use more specific State and Shared classes as the generic typing parameters. Requires an inheritance structure.
 
     This is recommended for smaller projects because it needs less boilerplate.
 
-    #### Duck Typing
+    ### Duck Typing
 
     For the more flexible approach with better scaling use protocols to define the supported state types. Remember to always extend `typing.Protocol` in the child classes for typing.
 
     This is recommended for scalable projects where many different state types need to be joined in one graph. See https://github.com/mathisxy/edgynodes/ for an example.
 
-    #### Disable Type Checking
+    ### Disable Type Checking
 
     If you want to disable type checking for the graph, you can use `typing.Any` as generic typing parameters in the graph.
 
@@ -46,7 +46,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
     The edges are defined as a list of tuples, where the first element is the source and the second element reveals the next node.
 
-    #### Formats
+    ### Formats
 
     The graph supports different formats for the edges.
 
@@ -79,8 +79,8 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
 
     def __init__(self, 
-                 edges: Sequence[BranchContainer[T, S]], 
-                 hooks: Sequence[GraphHook[T, S]] | None = None
+            edges: Sequence[BranchContainer[T, S]], 
+            hooks: Sequence[GraphHook[T, S]] | None = None
         ) -> None:
 
         self.edges = edges
@@ -94,7 +94,12 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
     def index_branches(self) -> None:
         for branch in self.edges:
 
-            self.branch_registry[branch[0]].append(Branch[T, S](branch[1], branch[2]))
+            source = branch[0][0][0]
+
+            start_nodes = [source] if isinstance(source, (Node, type)) else source
+
+            for start_node in start_nodes:
+                self.branch_registry[start_node].append(Branch[T, S](branch[0], branch[1]))
 
 
     async def __call__(self, state: T, shared: S) -> tuple[T, S]:
@@ -528,7 +533,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
             case Node():
                 next_nodes.append(NextNode[T, S](node=next, reached_by=entry))
 
-            case list():
+            case Sequence():
                 for n in next:
                     if isinstance(n, Node):
                         next_nodes.append(NextNode[T, S](node=n, reached_by=entry))

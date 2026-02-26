@@ -1,80 +1,95 @@
 from __future__ import annotations
-from typing import Callable, Awaitable, Any, Sequence
+from typing import Callable, Awaitable, Any, TypeGuard, cast
+from collections.abc import Sequence
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..states import StateProtocol, SharedProtocol
 from ..nodes import Node, START, END
 
 
-
-
 type NodeTupel[T: StateProtocol, S: SharedProtocol] = tuple[Source[T, S], *tuple[Node[T, S], ...]] | tuple[Source[T, S], *tuple[Node[T, S], ...], Next[T, S]]
 
 type SingleSource[T: StateProtocol, S: SharedProtocol] = Node[T, S] | type[START]
-type Source[T: StateProtocol, S: SharedProtocol] = SingleSource[T, S] | list[SingleSource[T, S]]
+type Source[T: StateProtocol, S: SharedProtocol] = SingleSource[T, S] | Sequence[SingleSource[T, S]]
 
 type SingleErrorSource[T: StateProtocol, S: SharedProtocol] = type[Exception] | tuple[Node[T, S], type[Exception]]
-type ErrorSource[T: StateProtocol, S: SharedProtocol] = SingleErrorSource[T, S] | tuple[list[Node[T, S]], type[Exception]]
+type ErrorSource[T: StateProtocol, S: SharedProtocol] = SingleErrorSource[T, S] | Sequence[SingleErrorSource[T, S]]
 
 type SingleNext[T: StateProtocol, S: SharedProtocol] = Node[T, S] | type[END] | None
-type ResolvedNext[T: StateProtocol, S: SharedProtocol] = SingleNext[T, S] | list[SingleNext[T, S]]
+type ResolvedNext[T: StateProtocol, S: SharedProtocol] = SingleNext[T, S] | Sequence[SingleNext[T, S]]
 type Next[T: StateProtocol, S: SharedProtocol] = ResolvedNext[T, S] | Callable[[T, S], ResolvedNext[T, S]] | Callable[[T, S], Awaitable[ResolvedNext[T, S]]]
 
 
 type Edge[T: StateProtocol, S: SharedProtocol] = tuple[Source[T, S], Next[T, S]] | tuple[Source[T, S], Next[T, S], Config]
 type ErrorEdge[T: StateProtocol, S: SharedProtocol] = tuple[ErrorSource[T, S], Next[T, S]] | tuple[ErrorSource[T, S], Next[T, S], ErrorConfig]
 
+type BranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[tuple[Edge[T, S] | NodeTupel[T, S], *tuple[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S]]], SingleNext[T, S]]
 
-type BranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[SingleSource[T, S], Sequence[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S]], SingleNext[T, S]]
 
+class Types[T: StateProtocol, S: SharedProtocol]:
 
-def is_node_tupel(edge: tuple[Any, ...]) -> bool:
+    @classmethod
+    def is_node_tupel(cls, edge: tuple[Any, ...]) -> TypeGuard[NodeTupel[T, S]]:
+        
+        return len(edge) >= 2 and (cls.is_source(edge[0]) and cls.is_only_node_tuple(edge[1:-1]) and cls.is_next(edge[-1]))
 
-    if len(edge) < 2:
-        return False
+    @classmethod
+    def is_only_node_tuple(cls, edge: tuple[Any, ...]) -> TypeGuard[tuple[*tuple[T, S]]]:
+        return all(isinstance(n, Node) for n in edge)
+
+    @classmethod
+    def is_next(cls, x: Any) -> TypeGuard[Next[T, S]]:
+        return (
+            cls.is_single_next(x) or
+            (isinstance(x, Sequence) and all(cls.is_single_next(n) for n in cast(Sequence[Any], x))) or
+            callable(cast(Any, x))
+        )
+
+    @classmethod
+    def is_single_next(cls, x: Any) -> TypeGuard[SingleNext[T, S]]:
+        return (
+            x is None or
+            x is END or
+            isinstance(x, Node)
+        )
+
+    @classmethod
+    def is_source(cls, x: Any) -> TypeGuard[Source[T, S]]:
+        return (
+            cls.is_single_source(x) or
+            (isinstance(x, Sequence) and all(cls.is_single_source(n) for n in cast(Sequence[Any], x)))
+        )
+
+    @classmethod
+    def is_single_source(cls, x: Any) -> TypeGuard[SingleSource[T, S]]:
+        return (
+            x is START or   
+            isinstance(x, Node)
+        )
+
+    @classmethod
+    def is_single_source_sequence(cls, x: Any) -> TypeGuard[Sequence[SingleSource[T, S]]]:
+        return isinstance(x, Sequence) and all(cls.is_single_source(n) for n in cast(Sequence[Any], x))
+
+    @classmethod
+    def is_error_source(cls, x: Any) -> TypeGuard[ErrorSource[T, S]]:
+        return (
+            cls.is_single_error_source(x) or
+            (isinstance(x, Sequence) and all(cls.is_single_error_source(n) for n in cast(Sequence[Any], x)))
+        )
+
+    @classmethod
+    def is_single_error_source(cls, x: Any) -> TypeGuard[SingleErrorSource[T, S]]:
+        return (
+            (isinstance(x, type) and issubclass(x, Exception)) or
+            (isinstance(x, tuple) and len(cast(tuple[Any], x)) == 2 and isinstance(x[0], Node) and isinstance(x[1], type) and issubclass(x[1], Exception))
+        )
     
-    if is_source(edge[0]) and is_only_node_tuple(edge[1:-1]) and is_next(edge[-1]):
-        return True
+    @classmethod
+    def is_single_error_source_sequence(cls, x: Any) -> TypeGuard[Sequence[SingleErrorSource[T, S]]]:
+        return isinstance(x, Sequence) and all(cls.is_single_error_source(n) for n in cast(Sequence[Any], x)) and len(cast(Sequence[Any], x)) > 1   
+
     
-    if is_only_node_tuple(edge[:-1]) and is_next(edge[-1]):
-        return True
-    
-    return False
-
-def is_only_node_tuple(edge: tuple[Any, ...]) -> bool:
-    return all(isinstance(n, Node) for n in edge)
-
-
-def is_next(x: Any) -> bool:
-    return (
-        is_single_next(x) or
-        (isinstance(x, list) and all(is_single_next(n) for n in x)) or # type: ignore
-        callable(x) # type: ignore
-    )
-
-def is_single_next(x: Any) -> bool:
-    return (
-        x is None or
-        x is END or
-        isinstance(x, Node)
-    )
-
-def is_branch_next(x: Any) -> bool:
-    return (
-        isinstance(x, tuple) and len(x) == 2 and isinstance(x[0], list) and is_single_next(x[1]) # type: ignore
-    )
-
-def is_source(x: Any) -> bool:
-    return (
-        is_single_source(x) or
-        (isinstance(x, list) and all(is_single_source(n) for n in x)) # type: ignore
-    )
-
-def is_single_source(x: Any) -> bool:
-    return (
-        x is START or   
-        isinstance(x, Node)
-    )
 
 
 class Config(BaseModel):

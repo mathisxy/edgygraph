@@ -67,7 +67,7 @@ win = WinNode()
 
 asyncio.run(Graph[GamblingState, Shared](
     edges=[
-        (
+        ((
             START,
             guess
         ),
@@ -86,6 +86,6 @@ asyncio.run(Graph[GamblingState, Shared](
         (
             win,
             END
-        )
+        ), None)
     ]
 )(state, shared))

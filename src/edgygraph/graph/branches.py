@@ -1,13 +1,13 @@
 from __future__ import annotations
-from typing import cast, Sequence, Hashable
+from typing import Hashable
 from collections import defaultdict
-from collections.abc import Hashable
+from collections.abc import Hashable, Sequence
 import asyncio
 
 from ..nodes import START, END, Node
 from ..states import StateProtocol, SharedProtocol
 from ..diff import Change
-from .types import NodeTupel, Edge, ErrorEdge, SingleNext, Entry, ErrorEntry, SingleSource, SingleErrorSource, Config, ErrorConfig, is_node_tupel
+from .types import NodeTupel, Edge, ErrorEdge, SingleNext, Entry, ErrorEntry, SingleSource, SingleErrorSource, Config, ErrorConfig, Types
 
 
 class Branch[T: StateProtocol, S: SharedProtocol]:
@@ -54,41 +54,42 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
         for i, edge in enumerate(self.edges):
 
             # Node Sequence
-            if is_node_tupel(edge):
-                edge = cast(NodeTupel[T, S], edge)
+            if Types[T, S].is_node_tupel(edge):
+
                 for source, next in zip(edge, edge[1:]):
                     if isinstance(source, type): assert source is START, f"Unexpected type in node sequence: {source}"
                     if isinstance(next, type): assert next is END, f"Unexpected type in node sequence: {next}"
                     assert isinstance(source, (Node, type)), f"Unexpected source type in node sequence: {source}"
                     self.edge_index[source].append(Entry[T, S](next=next, config=Config(), index=i))
+                    
                 continue
 
             match edge:
                 case (source, next, config): pass
-                case (source, next): config = Config() if source is START or isinstance(source, (Node, list)) else ErrorConfig()
+                case (source, next): config = Config() if source is START or isinstance(source, (Node, Sequence)) else ErrorConfig()
                 case _: raise ValueError(f"Invalid edge format: {edge}")
+            
+            if Types[T, S].is_error_source(source):
+                assert isinstance(config, ErrorConfig), f"Unexpected properties type for error edge: {config}"
+
+                if Types[T, S].is_single_error_source(source):
+                    self.error_edge_index[source].append(ErrorEntry[T, S](next=next, config=config, index=i))
+                elif Types[T, S].is_single_error_source_sequence(source):
+                    for single_error_source in source:
+                        self.error_edge_index[single_error_source].append(ErrorEntry[T, S](next=next, config=config, index=i))
+                else:
+                    raise ValueError(f"Invalid error source: {source}")
                 
-            if (isinstance(source, type) and issubclass(source, Exception)): # Error edge
-                assert isinstance(config, ErrorConfig), f"Unexpected properties type for error edge: {config}"
-                self.error_edge_index[source].append(ErrorEntry[T, S](next=next, config=config, index=i))
-
-            elif isinstance(source, tuple): # Error edge with nodes
-                assert isinstance(config, ErrorConfig), f"Unexpected properties type for error edge: {config}"
-                nodes = source[0] if isinstance(source[0], list) else [source[0]]
-                et = source[1]
-
-                for node in nodes:
-                    self.error_edge_index[(node, et)].append(ErrorEntry[T, S](next=next, config=config, index=i))
-
-            elif isinstance(source, list): # Multiple sources
+            elif Types[T, S].is_source(source):
                 assert isinstance(config, Config), f"Unexpected properties type for node edge: {config}"
 
-                for s in source:
-                    self.edge_index[s].append(Entry[T, S](next=next, config=config, index=i))
-
-            elif isinstance(source, Node) or source is START: # Single source
-                assert isinstance(config, Config), f"Unexpected properties type for node edge: {config}"
-                self.edge_index[source].append(Entry[T, S](next=next, config=config, index=i))
+                if Types[T, S].is_single_source(source):
+                    self.edge_index[source].append(Entry[T, S](next=next, config=config, index=i))
+                elif Types[T, S].is_single_source_sequence(source):
+                    for single_source in source:
+                        self.edge_index[single_source].append(Entry[T, S](next=next, config=config, index=i))
+                else:
+                    raise ValueError(f"Invalid source: {source}")
 
             else:
                 raise ValueError(f"Invalid edge source: {edge[0]}")
