@@ -38,7 +38,6 @@ class InteractiveDebugHook[T: State, S: Shared](GraphHook[T, S]):
     async def on_merge_conflict(
         self,
         state: T,
-        result_states: list[T],
         changes: list[dict[tuple[Hashable, ...], Change]],
         conflicts: dict[tuple[Hashable, ...], list[Change]],
     ) -> None:

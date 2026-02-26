@@ -1,14 +1,10 @@
 from __future__ import annotations
-from typing import Callable, Awaitable, Any, TYPE_CHECKING
+from typing import Callable, Awaitable, Any, Sequence
 from pydantic import BaseModel, ConfigDict, Field
-import inspect
 
 from ..states import StateProtocol, SharedProtocol
 from ..nodes import Node, START, END
 
-if TYPE_CHECKING:
-    from .graphs import Graph
-    from .branches import Branch
 
 
 
@@ -21,13 +17,15 @@ type SingleErrorSource[T: StateProtocol, S: SharedProtocol] = type[Exception] | 
 type ErrorSource[T: StateProtocol, S: SharedProtocol] = SingleErrorSource[T, S] | tuple[list[Node[T, S]], type[Exception]]
 
 type SingleNext[T: StateProtocol, S: SharedProtocol] = Node[T, S] | type[END] | None
-type BranchNext[T: StateProtocol, S: SharedProtocol] = tuple[list[Edge[T, S]], SingleNext[T, S]]
-type ResolvedNext[T: StateProtocol, S: SharedProtocol] = SingleNext[T, S] | list[SingleNext[T, S]] | BranchNext[T, S]
+type ResolvedNext[T: StateProtocol, S: SharedProtocol] = SingleNext[T, S] | list[SingleNext[T, S]]
 type Next[T: StateProtocol, S: SharedProtocol] = ResolvedNext[T, S] | Callable[[T, S], ResolvedNext[T, S]] | Callable[[T, S], Awaitable[ResolvedNext[T, S]]]
 
 
 type Edge[T: StateProtocol, S: SharedProtocol] = tuple[Source[T, S], Next[T, S]] | tuple[Source[T, S], Next[T, S], Config]
 type ErrorEdge[T: StateProtocol, S: SharedProtocol] = tuple[ErrorSource[T, S], Next[T, S]] | tuple[ErrorSource[T, S], Next[T, S], ErrorConfig]
+
+
+type BranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[SingleSource[T, S], Sequence[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S]], SingleNext[T, S]]
 
 
 def is_node_tupel(edge: tuple[Any, ...]) -> bool:
@@ -59,6 +57,11 @@ def is_single_next(x: Any) -> bool:
         x is None or
         x is END or
         isinstance(x, Node)
+    )
+
+def is_branch_next(x: Any) -> bool:
+    return (
+        isinstance(x, tuple) and len(x) == 2 and isinstance(x[0], list) and is_single_next(x[1]) # type: ignore
     )
 
 def is_source(x: Any) -> bool:
@@ -113,57 +116,6 @@ class BaseEntry[T: StateProtocol, S: SharedProtocol](BaseModel):
     def model_post_init(self, __context: Any):
         if type(self) is BaseEntry:
             raise Exception("BaseEntry is not meant to be instantiated directly.") # Safeguard
-
-    async def __call__(self, state: T, shared: S, graph: Graph[T, S]) -> list[NextNode[T, S] | Branch[T, S]]:
-        """
-        Resolve the next to nodes.
-
-        Make sure to ONLY call this method ONCE per execution of the corresponding edge.
-    
-        Args:
-            state: The current state.
-            shared: The shared state.
-        
-        Returns:
-            The resolved nodes.
-        """
-
-        from .branches import Branch
-
-        next_nodes: list[NextNode[T, S] | Branch[T, S]] = []
-        next = self.next
-
-        match next:
-
-            case None:
-                pass # END
-
-            case type():
-                assert next is END, "Only END is allowed as a type here"
-            
-            case Node():
-                next_nodes.append(NextNode[T, S](node=next, reached_by=self)) # type: ignore
-
-            case list():
-                for n in next:
-                    if isinstance(n, Node):
-                        next_nodes.append(NextNode[T, S](node=n, reached_by=self)) # type: ignore
-
-            case (edges, join):
-                next_nodes.append(Branch[T, S](graph=graph, edges=edges, join=join))
-
-
-            case _: # callable
-                next = next
-                res = next(state, shared)
-                if inspect.isawaitable(res):
-                    res = await res # for awaitables
-                
-                if isinstance(res, Node):
-                    next_nodes.append(NextNode[T, S](node=res, reached_by=self)) # type: ignore
-
-        
-        return next_nodes
 
 
 class Entry[T: StateProtocol, S: SharedProtocol](BaseEntry[T, S]):
