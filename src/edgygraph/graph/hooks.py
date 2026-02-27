@@ -3,7 +3,8 @@ from collections.abc import Hashable
 
 from ..states import StateProtocol, SharedProtocol
 from ..diff import Change
-from .types import NextNode
+from .branches import Branch
+from .types import NextNode, SingleSource, SingleNext
 
 
 
@@ -53,6 +54,37 @@ class GraphHook[T: StateProtocol, S: SharedProtocol](ABC):
         """
 
         pass
+
+
+    async def on_spawn_branch_start(self, state: T, shared: S, branch: Branch[T, S], trigger: NextNode[T, S], branch_registry: dict[SingleSource[T, S], list[Branch[T, S]]], join_registry: dict[SingleNext[T, S], list[Branch[T, S]]]):
+        """
+        Called before a branch is spawned.
+
+        Args:
+            state: The state of the graph.
+            shared: The shared state of the graph.
+            branch: The branch to be spawned.
+            branch_registry: The branch registry of the graph.
+            source_node: The node that spawned the branch.
+        """
+
+        pass
+
+    
+    async def on_spawn_branch_end(self, state: T, shared: S, branch: Branch[T, S], trigger: NextNode[T, S], branch_registry: dict[SingleSource[T, S], list[Branch[T, S]]], join_registry: dict[SingleNext[T, S], list[Branch[T, S]]]):
+        """
+        Called after a branch is spawned.
+
+        Args:
+            state: The state of the graph.
+            shared: The shared state of the graph.
+            branch: The branch that was spawned.
+            branch_registry: The branch registry of the graph.
+            trigger: The node that spawned the branch.
+        """
+
+        pass
+
 
 
     async def on_merge_start(self, state: T, result_states: list[T], changes: list[dict[tuple[Hashable, ...], Change]]) -> None:

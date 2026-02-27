@@ -32,7 +32,7 @@ node = MyNode()
 ### GRAPH
 
 graph = Graph[MyState, Shared](
-    edges=[
+    edges=[(
         (
             START,
             node
@@ -40,7 +40,7 @@ graph = Graph[MyState, Shared](
         (
             node,
             END
-        )
+        ), END)
     ]
 )
 

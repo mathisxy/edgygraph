@@ -20,24 +20,18 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
         join: The node to join the branch after execution. If None the branch will not be joined.
 
     """
-    
-    edges: Sequence[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S]]
-
-    join: SingleNext[T, S]
-
-    result: asyncio.Future[dict[tuple[Hashable, ...], Change]] | None = None
-
-    edge_index: dict[SingleSource[T, S], list[Entry[T, S]]]
-    error_edge_index: dict[SingleErrorSource[T, S], list[ErrorEntry[T, S]]]
 
 
-    def __init__(self, edges: Sequence[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S]], join: SingleNext[T, S] = None) -> None:
+    def __init__(self, edges: Sequence[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S]], start: SingleSource[T, S], join: SingleNext[T, S] = None) -> None:
 
         self.edges = edges
+        self.start = start
         self.join = join
 
-        self.edge_index = defaultdict(list)
-        self.error_edge_index = defaultdict(list)
+        self.result: asyncio.Future[dict[tuple[Hashable, ...], Change]] | None = None
+
+        self.edge_index: dict[SingleSource[T, S], list[Entry[T, S]]] = defaultdict(list)
+        self.error_edge_index: dict[SingleErrorSource[T, S], list[ErrorEntry[T, S]]] = defaultdict(list)
 
         self.index_edges()
 
@@ -66,11 +60,12 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
 
             match edge:
                 case (source, next, config): pass
-                case (source, next): config = Config() if source is START or isinstance(source, (Node, Sequence)) else ErrorConfig()
+                case (source, next): config = None
                 case _: raise ValueError(f"Invalid edge format: {edge}")
             
             if Types[T, S].is_error_source(source):
-                assert isinstance(config, ErrorConfig), f"Unexpected properties type for error edge: {config}"
+                config = config or ErrorConfig()
+                assert isinstance(config, ErrorConfig), f"Unexpected properties type for error edge {edge}: {config}"
 
                 if Types[T, S].is_single_error_source(source):
                     self.error_edge_index[source].append(ErrorEntry[T, S](next=next, config=config, index=i))
@@ -81,7 +76,8 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
                     raise ValueError(f"Invalid error source: {source}")
                 
             elif Types[T, S].is_source(source):
-                assert isinstance(config, Config), f"Unexpected properties type for node edge: {config}"
+                config = config or Config()
+                assert isinstance(config, Config), f"Unexpected properties type for node edge {edge}: {config}"
 
                 if Types[T, S].is_single_source(source):
                     self.edge_index[source].append(Entry[T, S](next=next, config=config, index=i))

@@ -9,7 +9,8 @@ from rich.rule import Rule
 from rich.tree import Tree
 
 from ...diff import Change, ChangeTypes
-from ...graph.types import NextNode
+from ...graph.types import NextNode, SingleNext, SingleSource
+from ...graph.branches import Branch
 from ...states import StateProtocol as State, SharedProtocol as Shared
 
 
@@ -151,6 +152,176 @@ class GraphRenderer[T: State, S: Shared]:
                 )
 
         self.console.print(table)
+
+
+    # -------------------------------------------------------------------------
+    # Branch / Join overview
+    # -------------------------------------------------------------------------
+
+
+    def render_spawn_branch_end(
+        self,
+        branch: Branch[T, S],
+        trigger: NextNode[T, S],
+    ) -> None:
+        """
+        Render information after a branch has been spawned.
+        """
+
+        # Titelbaum
+        tree = Tree("[bold magenta]Branch Spawned")
+
+        # Trigger Node
+        trigger_name = trigger.node.__class__.__name__
+        tree.add(f"[yellow]Triggered by:[/yellow] [green]{trigger_name}[/green]")
+
+        # Join Info
+        if branch.join is None:
+            join_label = "[dim]No Join (detached branch)[/dim]"
+        elif isinstance(branch.join, type):
+            join_label = "[red]END[/red]"
+        else:
+            join_label = f"[cyan]{branch.join.__class__.__name__}[/cyan]"
+
+        tree.add(f"[yellow]Join Target:[/yellow] {join_label}")
+
+        # Edge Übersicht
+        edge_info = Tree("[bold]Branch Edges")
+        for source, entries in branch.edge_index.items():
+            source_name = (
+                "START" if isinstance(source, type)
+                else source.__class__.__name__
+            )
+
+            source_node = edge_info.add(f"[blue]{source_name}[/blue]")
+
+            for entry in entries:
+                next_repr = entry.next
+                if isinstance(next_repr, type):
+                    next_label = "END"
+                elif next_repr is None:
+                    next_label = "None"
+                elif hasattr(next_repr, "__class__"):
+                    next_label = getattr(next_repr, "__class__", type(next_repr)).__name__
+                else:
+                    next_label = str(next_repr)
+
+                source_node.add(
+                    f"[dim]->[/dim] {next_label} "
+                    f"[dim](idx={entry.index}, instant={entry.config.instant})[/dim]"
+                )
+
+        tree.add(edge_info)
+
+        self.console.print(
+            Panel(
+                tree,
+                title="Spawn Branch",
+                border_style="magenta",
+                expand=False,
+            )
+        )
+
+    def render_branch_overview(
+        self,
+        branch_registry: dict[SingleSource[T, S], list[Branch[T, S]]],
+        join_registry: dict[SingleNext[T, S], list[Branch[T, S]]],
+    ) -> None:
+        """
+        Render a combined overview of branch_registry and join_registry.
+        """
+
+        # ================================================================
+        # LEFT: Branch Registry (Spawn Sources)
+        # ================================================================
+
+        branch_tree = Tree("[bold magenta]Branch Registry (Spawn Sources)")
+
+        total_branches = 0
+
+        for source, branches in branch_registry.items():
+            source_name = (
+                "START" if isinstance(source, type)
+                else source.__class__.__name__
+            )
+
+            total_branches += len(branches)
+
+            source_node = branch_tree.add(
+                f"[blue]{source_name}[/blue] "
+                f"[dim]({len(branches)} branches)[/dim]"
+            )
+
+            for i, b in enumerate(branches):
+                if b.join is None:
+                    join_name = "None"
+                elif isinstance(b.join, type):
+                    join_name = "END"
+                else:
+                    join_name = b.join.__class__.__name__
+
+                source_node.add(
+                    f"[magenta]Branch#{i}[/magenta] "
+                    f"[dim]-> join:[/dim] [cyan]{join_name}[/cyan]"
+                )
+
+        if total_branches == 0:
+            branch_tree.add("[dim]No active branches[/dim]")
+
+        # ================================================================
+        # RIGHT: Join Registry (Waiting Branches)
+        # ================================================================
+
+        join_tree = Tree("[bold cyan]Join Registry (Waiting Branches)")
+
+        total_waiting = 0
+
+        for target, branches in join_registry.items():
+
+            if not branches:
+                continue
+
+            target_name = (
+                "END" if isinstance(target, type)
+                else target.__class__.__name__
+            )
+
+            total_waiting += len(branches)
+
+            target_node = join_tree.add(
+                f"[cyan]{target_name}[/cyan] "
+                f"[dim]({len(branches)} waiting)[/dim]"
+            )
+
+            for i, _ in enumerate(branches):
+                target_node.add(f"[magenta]Branch#{i}[/magenta]")
+
+        if total_waiting == 0:
+            join_tree.add("[dim]No branches waiting for join[/dim]")
+
+        # ================================================================
+        # Render
+        # ================================================================
+
+        header = (
+            "[bold yellow]Branch System Snapshot[/bold yellow]  •  "
+            f"Active: {total_branches}  •  Waiting: {total_waiting}"
+        )
+
+        self.console.print(
+            Panel(
+                Columns(
+                    [
+                        Panel(branch_tree, border_style="magenta"),
+                        Panel(join_tree, border_style="cyan"),
+                    ],
+                    expand=True,
+                ),
+                title=header,
+                border_style="yellow",
+                expand=True,
+            )
+        )
 
     # -------------------------------------------------------------------------
     # Generic helpers

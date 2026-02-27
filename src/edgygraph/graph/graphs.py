@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-from typing import cast, Any, Hashable
+from typing import cast, Any, Hashable, Callable
 from collections import defaultdict
 from collections.abc import Hashable, Sequence
 import asyncio
@@ -10,7 +10,7 @@ import inspect
 from ..states import StateProtocol, SharedProtocol
 from ..diff import Change, ChangeConflictException, Diff
 from ..nodes import Node, END, START
-from .types import SingleNext, NextNode, ErrorEntry, SingleErrorSource, Entries, BranchContainer, SingleSource
+from .types import SingleNext, NextNode, ErrorEntry, SingleErrorSource, Entries, BranchContainer, SingleSource, Source, Types, ResolvedNext
 from .hooks import GraphHook
 from .branches import Branch
 
@@ -92,14 +92,26 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
         self.index_branches()
 
     def index_branches(self) -> None:
-        for branch in self.edges:
+        for branch_container in self.edges:
 
-            source = branch[0][0][0]
+            source = branch_container[0][0]
 
-            start_nodes = [source] if isinstance(source, (Node, type)) else source
+            if Types[T, S].is_single_source(source):
 
-            for start_node in start_nodes:
-                self.branch_registry[start_node].append(Branch[T, S](branch[0], branch[1]))
+                branch = Branch[T, S](branch_container[:-1], source, branch_container[-1])
+                self.branch_registry[source].append(branch)
+
+            elif Types[T, S].is_single_source_sequence(source):
+
+                for start_node in source:
+
+                    branch = Branch[T, S](branch_container[:-1], start_node, branch_container[-1])
+                    self.branch_registry[start_node].append(branch)
+
+            else:
+                raise ValueError(f"Invalid source type: {source}")
+
+            print(self.branch_registry)
 
 
     async def __call__(self, state: T, shared: S) -> tuple[T, S]:
@@ -157,7 +169,9 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
         try:
             
-            next_nodes: list[NextNode[T, S]] = await self.get_next(state, shared, START, branch)
+            next_nodes: list[NextNode[T, S]] = await self.get_next(state, shared, branch.start, branch)
+
+            print("INITIAL NEXT:", next_nodes)
 
 
             while next_nodes:
@@ -197,7 +211,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
                     
                 else:
 
-                    next_nodes = await self.get_next(state, shared, next_nodes, branch)
+                    next_nodes = await self.get_next(state, shared, [n.node for n in next_nodes], branch)
 
                 finally:
 
@@ -215,6 +229,8 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
             
             if e:
                 raise e
+
+        print(" --- BRANCH RESULT --- ")
         
         branch.result.set_result(Diff.recursive_diff(initial_state.model_dump(), state.model_dump()))
 
@@ -333,7 +349,12 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
         for node in next_nodes:
             for branch in self.branch_registry[node.node]:
+
+                for h in self.hooks: await h.on_spawn_branch_start(state, shared, branch, node, self.branch_registry, self.join_registry)
+
                 self.spawn_branch(state, shared, branch)
+
+                for h in self.hooks: await h.on_spawn_branch_end(state, shared, branch, node, self.branch_registry, self.join_registry)
     
 
     async def join_branches(self, state: T, next_nodes: list[NextNode[T, S]]) -> T:
@@ -366,7 +387,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
     
 
 
-    async def get_next(self, state: T, shared: S, current_nodes: Sequence[NextNode[T, S]] | type[START], branch: Branch[T, S]) -> list[NextNode[T, S]]:
+    async def get_next(self, state: T, shared: S, current_nodes: Source[T, S], branch: Branch[T, S]) -> list[NextNode[T, S]]:
         """
         Get the next nodes to run based on the current nodes and the graph's edges.
 
@@ -381,21 +402,25 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
            The list of the next nodes including their edges that they were reached by.
         """
 
+        print(f"GET NEXT FOR CURRENT NODES: {current_nodes}")
 
         next_list: list[NextNode[T, S]] = []
 
-        if isinstance(current_nodes, type): # START
-            next_list.extend(
-                await self.resolve_entries(state, shared, branch.edge_index[START])
-            )
-
-        else: # Regular nodes
+        if Types[T, S].is_single_source_sequence(current_nodes):
+            print("IS SINGLE SOURCE SEQUENCE")
             for current_node in current_nodes:
-
-                # Find the edge corresponding to the current node
                 next_list.extend(
-                    await self.resolve_entries(state, shared, branch.edge_index[current_node.node])
+                    await self.resolve_entries(state, shared, branch.edge_index[current_node])
                 )
+
+        elif Types[T, S].is_single_source(current_nodes):
+            print("IS SINGLE SOURCE")
+            next_list.extend(
+                await self.resolve_entries(state, shared, branch.edge_index[current_nodes])
+            )
+        
+        else:
+            raise ValueError(f"Invalid current_nodes type: {type(current_nodes)}")
 
 
         # Instant nodes
@@ -489,23 +514,16 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
     async def resolve_entries(self, state: T, shared: S, entries: Sequence[Entries[T, S]]) -> list[NextNode[T, S]]:
         
-        next_nodes: list[NextNode[T, S]] = []
+        print(f"RESOLVE: {entries}")
 
-        for entry in entries:
-            next_list = await self.resolve_entry(state, shared, entry)
-
-            for x in next_list:
-
-                match x:
-                    case NextNode():
-                        next_nodes.append(x)
-                    case Branch():
-                        self.spawn_branch(state, shared, x)
-
-        return next_nodes
+        return [
+            next_node
+            for entry in entries
+            for next_node in await self.resolve_entry(state, shared, entry)
+        ]
 
 
-    async def resolve_entry(self, state: T, shared: S, entry: Entries[T, S]) -> list[NextNode[T, S] | Branch[T, S]]:
+    async def resolve_entry(self, state: T, shared: S, entry: Entries[T, S]) -> list[NextNode[T, S]]:
         """
         Resolve the next to nodes.
 
@@ -519,36 +537,60 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
             The resolved nodes.
         """
 
-        next_nodes: list[NextNode[T, S] | Branch[T, S]] = []
+        print(f"RESOLVING: {entry}")
+
         next = entry.next
 
-        match next:
-
-            case None:
-                pass # END
-
-            case type():
-                assert next is END, "Only END is allowed as a type here"
-            
-            case Node():
-                next_nodes.append(NextNode[T, S](node=next, reached_by=entry))
-
-            case Sequence():
-                for n in next:
-                    if isinstance(n, Node):
-                        next_nodes.append(NextNode[T, S](node=n, reached_by=entry))
 
 
-            case _: # callable
-                next = next
-                res = next(state, shared)
-                if inspect.isawaitable(res):
-                    res = await res # for awaitables
-                
-                if isinstance(res, Node):
-                    next_nodes.append(NextNode[T, S](node=res, reached_by=entry))
+        if not Types[T, S].is_resolved_next(next):
+            print("CALLABLE")
+            next = cast(Callable[[T, S], ResolvedNext[T, S]], next)
+            next = next(state, shared)
+
+            if inspect.isawaitable(next):
+                next = await next
 
         
+        return [
+            NextNode[T, S](node=node, reached_by=entry)
+            for node in self.get_next_nodes(next)
+        ]
+    
+
+
+    def get_next_nodes(self, next: ResolvedNext[T, S]) -> list[Node[T, S]]:
+
+        next_nodes: list[Node[T, S]] = []
+
+        def match(x: SingleNext[T, S]) -> None:
+
+            match x:
+
+                case None:
+                    print("None")
+                    pass # END
+
+                case type():
+                    print("END")
+                    assert next is END, "Only END is allowed as a type here"
+                
+                case Node():
+                    print("Node")
+                    next_nodes.append(x)
+
+        
+        if Types[T, S].is_single_next_sequence(next):
+            print("Sequence")
+            for x in next:
+                match(x)
+
+        elif Types[T, S].is_single_next(next):
+            print("Single")
+            match(next)
+
         return next_nodes
+                    
+                    
     
 

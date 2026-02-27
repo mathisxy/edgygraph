@@ -23,14 +23,13 @@ type Next[T: StateProtocol, S: SharedProtocol] = ResolvedNext[T, S] | Callable[[
 type Edge[T: StateProtocol, S: SharedProtocol] = tuple[Source[T, S], Next[T, S]] | tuple[Source[T, S], Next[T, S], Config]
 type ErrorEdge[T: StateProtocol, S: SharedProtocol] = tuple[ErrorSource[T, S], Next[T, S]] | tuple[ErrorSource[T, S], Next[T, S], ErrorConfig]
 
-type BranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[tuple[Edge[T, S] | NodeTupel[T, S], *tuple[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S]]], SingleNext[T, S]]
+type BranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[Edge[T, S] | NodeTupel[T, S], *tuple[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S], ...], SingleNext[T, S]]
 
 
 class Types[T: StateProtocol, S: SharedProtocol]:
 
     @classmethod
     def is_node_tupel(cls, edge: tuple[Any, ...]) -> TypeGuard[NodeTupel[T, S]]:
-        
         return len(edge) >= 2 and (cls.is_source(edge[0]) and cls.is_only_node_tuple(edge[1:-1]) and cls.is_next(edge[-1]))
 
     @classmethod
@@ -40,10 +39,21 @@ class Types[T: StateProtocol, S: SharedProtocol]:
     @classmethod
     def is_next(cls, x: Any) -> TypeGuard[Next[T, S]]:
         return (
-            cls.is_single_next(x) or
-            (isinstance(x, Sequence) and all(cls.is_single_next(n) for n in cast(Sequence[Any], x))) or
-            callable(cast(Any, x))
+            cls.is_resolved_next(x) or
+            callable(x)
         )
+
+    @classmethod
+    def is_resolved_next(cls, x: Any) -> TypeGuard[ResolvedNext[T, S]]:
+        return (
+            cls.is_single_next(x) or
+            cls.is_single_next_sequence(x)
+        )
+
+    @classmethod
+    def is_single_next_sequence(cls, x: Any) -> TypeGuard[Sequence[SingleNext[T, S]]]:
+        return isinstance(x, Sequence) and all(cls.is_single_next(n) for n in cast(Sequence[Any], x))
+
 
     @classmethod
     def is_single_next(cls, x: Any) -> TypeGuard[SingleNext[T, S]]:
