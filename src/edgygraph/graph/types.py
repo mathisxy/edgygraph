@@ -15,7 +15,7 @@ type Source[T: StateProtocol, S: SharedProtocol] = SingleSource[T, S] | Sequence
 type SingleErrorSource[T: StateProtocol, S: SharedProtocol] = type[Exception] | tuple[Node[T, S], type[Exception]]
 type ErrorSource[T: StateProtocol, S: SharedProtocol] = SingleErrorSource[T, S] | Sequence[SingleErrorSource[T, S]]
 
-type SingleNext[T: StateProtocol, S: SharedProtocol] = Node[T, S] | type[END] | None
+type SingleNext[T: StateProtocol, S: SharedProtocol] = Node[T, S] | None
 type ResolvedNext[T: StateProtocol, S: SharedProtocol] = SingleNext[T, S] | Sequence[SingleNext[T, S]]
 type Next[T: StateProtocol, S: SharedProtocol] = ResolvedNext[T, S] | Callable[[T, S], ResolvedNext[T, S]] | Callable[[T, S], Awaitable[ResolvedNext[T, S]]]
 
@@ -23,7 +23,8 @@ type Next[T: StateProtocol, S: SharedProtocol] = ResolvedNext[T, S] | Callable[[
 type Edge[T: StateProtocol, S: SharedProtocol] = tuple[Source[T, S], Next[T, S]] | tuple[Source[T, S], Next[T, S], Config]
 type ErrorEdge[T: StateProtocol, S: SharedProtocol] = tuple[ErrorSource[T, S], Next[T, S]] | tuple[ErrorSource[T, S], Next[T, S], ErrorConfig]
 
-type BranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[Edge[T, S] | NodeTupel[T, S], *tuple[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S], ...], SingleNext[T, S]]
+type Join[T: StateProtocol, S: SharedProtocol] = Next[T, S] | type[END]
+type BranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[Edge[T, S] | NodeTupel[T, S], *tuple[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S], ...], Join[T, S]]
 
 
 class Types[T: StateProtocol, S: SharedProtocol]:

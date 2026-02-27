@@ -10,7 +10,7 @@ import inspect
 from ..states import StateProtocol, SharedProtocol
 from ..diff import Change, ChangeConflictException, Diff
 from ..nodes import Node, END, START
-from .types import SingleNext, NextNode, ErrorEntry, SingleErrorSource, Entries, BranchContainer, SingleSource, Source, Types, ResolvedNext
+from .types import SingleNext, NextNode, ErrorEntry, SingleErrorSource, Entries, BranchContainer, SingleSource, Source, Types, ResolvedNext, Join
 from .hooks import GraphHook
 from .branches import Branch
 
@@ -35,7 +35,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
     For the more flexible approach with better scaling use protocols to define the supported state types. Remember to always extend `typing.Protocol` in the child classes for typing.
 
-    This is recommended for scalable projects where many different state types need to be joined in one graph. See https://github.com/mathisxy/edgynodes/ for an example.
+    This is recommended for scalable projects where many different state types need to be joined in one graph. See [edgynodes](https://github.com/mathisxy/edgynodes/) for an example.
 
     ### Disable Type Checking
 
@@ -46,13 +46,50 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
     The edges are defined as a list of tuples, where the first element is the source and the second element reveals the next node.
 
+    ### Branches
+
+    The edges are contained in branches. A branch is a tuple with edges and a join parameter at the end. 
+
+    #### Spawning
+
+    A branch is spawned when the source of the first edge of the branch is triggered.
+
+    In this example it would be on `START`:
+
+    ```python
+    edges=[(
+       (START, node1),
+       (node1, node2),
+       END
+    )]
+    ```
+
+    In this example it would be on `node1` and on `node2` each:
+
+    ```python
+    edges=[(
+       ([node1, node2], node3),
+       node4
+    )]
+    ```
+
+    #### Joining
+
+    The join parameter can be of the following types:
+
+    - `None`: The branch will not be joined.
+    - `END`: The branch will be joined at the end of the graph.
+    - A node instance: The branch will be joined directly before the given node is executed in any branch into this branch.
+
+    The process of joining describes waiting for the branches to finish wich aim to join and then applying the changes to the state of the whole finished branch to the state of the joining branch.
+
     ### Formats
 
-    The graph supports different formats for the edges.
+    A branch supports different formats for the edges.
 
     - `(source, target)`: A single edge from source to target.
     - `(START, target)`: A single edge from the start of the graph to target.
-    - `(source, END)`: A single edge from source to the end of the graph. It equals to `(source, None)`. It is redundant but can be used for better readability.
+    - `(source, None)`: A single edge from source to no target. `END` is not allowed here, since it would be redundant. It is only allowed in join parameters to distinct join at the end of the graph (`END`) from not joining (`None`)
     - `([source1, source2], target)`: Multiple edges from source1 and source2 to target.
     - `(source, [target1, target2])`: Multiple edges from source to target1 and target2.
     - `([source1, source2], [target1, target2])`: Multiple edges from source1 and source2 to target1 and target2. This will create 4 edges in total.
@@ -87,7 +124,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
         self.hooks = hooks or []
 
         self.branch_registry: dict[SingleSource[T, S], list[Branch[T, S]]] = defaultdict(list)
-        self.join_registry: dict[SingleNext[T, S], list[Branch[T, S]]] = defaultdict(list)
+        self.join_registry: dict[Join[T, S], list[Branch[T, S]]] = defaultdict(list)
 
         self.index_branches()
 
@@ -257,14 +294,6 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
             raise e
 
 
-            
-    def spawn_branch(self, state: T, shared: S, branch: Branch[T, S]) -> None:
-
-        self.join_registry[branch.join].append(branch)
-
-        self.task_group.create_task(self.run_branch(state, shared, branch))
-
-
 
     async def merge_states(self, current_state: T, result_states: list[T]) -> T:
         """
@@ -356,6 +385,13 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
                 for h in self.hooks: await h.on_spawn_branch_end(state, shared, branch, node, self.branch_registry, self.join_registry)
     
+    
+            
+    def spawn_branch(self, state: T, shared: S, branch: Branch[T, S]) -> None:
+
+        self.join_registry[branch.join].append(branch)
+
+        self.task_group.create_task(self.run_branch(state, shared, branch))
 
     async def join_branches(self, state: T, next_nodes: list[NextNode[T, S]]) -> T:
         """
@@ -569,11 +605,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
                 case None:
                     print("None")
-                    pass # END
-
-                case type():
-                    print("END")
-                    assert next is END, "Only END is allowed as a type here"
+                    pass
                 
                 case Node():
                     print("Node")

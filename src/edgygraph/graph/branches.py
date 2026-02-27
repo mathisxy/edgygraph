@@ -4,10 +4,9 @@ from collections import defaultdict
 from collections.abc import Hashable, Sequence
 import asyncio
 
-from ..nodes import START, END, Node
 from ..states import StateProtocol, SharedProtocol
 from ..diff import Change
-from .types import NodeTupel, Edge, ErrorEdge, SingleNext, Entry, ErrorEntry, SingleSource, SingleErrorSource, Config, ErrorConfig, Types
+from .types import NodeTupel, Edge, ErrorEdge, Join, Entry, ErrorEntry, SingleSource, SingleErrorSource, Config, ErrorConfig, Types
 
 
 class Branch[T: StateProtocol, S: SharedProtocol]:
@@ -22,7 +21,7 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
     """
 
 
-    def __init__(self, edges: Sequence[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S]], start: SingleSource[T, S], join: SingleNext[T, S] = None) -> None:
+    def __init__(self, edges: Sequence[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S]], start: SingleSource[T, S], join: Join[T, S] = None) -> None:
 
         self.edges = edges
         self.start = start
@@ -51,9 +50,8 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
             if Types[T, S].is_node_tupel(edge):
 
                 for source, next in zip(edge, edge[1:]):
-                    if isinstance(source, type): assert source is START, f"Unexpected type in node sequence: {source}"
-                    if isinstance(next, type): assert next is END, f"Unexpected type in node sequence: {next}"
-                    assert isinstance(source, (Node, type)), f"Unexpected source type in node sequence: {source}"
+                    assert Types[T, S].is_single_source(source), f"Unexpected source type in node sequence: {source}"
+                    assert Types[T, S].is_next(next), f"Unexpected next type in node sequence: {next}"
                     self.edge_index[source].append(Entry[T, S](next=next, config=Config(), index=i))
                     
                 continue

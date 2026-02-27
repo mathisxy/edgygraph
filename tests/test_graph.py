@@ -174,7 +174,7 @@ class TestGraphBasicExecution:
     def test_single_node_increments_value(self):
         state = SimpleState(value=0)
         shared = SimpleShared()
-        g = Graph[SimpleState, SimpleShared](edges=[((START, inc), (inc, END), END)])
+        g = Graph[SimpleState, SimpleShared](edges=[((START, inc), END)])
         result_state, _ = asyncio.get_event_loop().run_until_complete(g(state, shared))
         assert result_state.value == 1
 
@@ -183,14 +183,14 @@ class TestGraphBasicExecution:
         n2 = IncrementNode()
         state = SimpleState(value=0)
         shared = SimpleShared()
-        g = Graph(edges=[((START, n1), (n1, n2), (n2, END), END)])
+        g = Graph(edges=[((START, n1), (n1, n2), (n2, None), END)])
         result_state, _ = asyncio.get_event_loop().run_until_complete(g(state, shared))
         assert result_state.value == 2
 
     def test_empty_graph_returns_unchanged_state(self):
         state = SimpleState(value=42)
         shared = SimpleShared()
-        g = Graph[SimpleState, SimpleShared](edges=[((START, END), END)])
+        g = Graph[SimpleState, SimpleShared](edges=[((START, None), END)])
         result_state, _ = asyncio.get_event_loop().run_until_complete(g(state, shared))
         assert result_state.value == 42
 
@@ -204,7 +204,7 @@ class TestGraphBasicExecution:
     def test_shared_is_same_object(self):
         state = SimpleState()
         shared = SimpleShared()
-        g = Graph[SimpleState, SimpleShared](edges=[((START, inc), (inc, END), END)])
+        g = Graph[SimpleState, SimpleShared](edges=[((START, inc), END)])
         _, result_shared = asyncio.get_event_loop().run_until_complete(g(state, shared))
         assert result_shared is shared
 
@@ -219,7 +219,7 @@ class TestGraphConditionalEdges:
         noop = NoOpNode()
 
         def router(state: SimpleState, shared: SimpleShared):
-            return noop if state.value > 0 else END
+            return noop if state.value > 0 else None
 
         state = SimpleState(value=1)
         shared = SimpleShared()
@@ -232,7 +232,7 @@ class TestGraphConditionalEdges:
         inc = IncrementNode()
 
         def router(state: SimpleState, shared: SimpleShared):
-            return END
+            return None
 
         state = SimpleState(value=0)
         shared = SimpleShared()
@@ -249,7 +249,7 @@ class TestGraphConditionalEdges:
 
         state = SimpleState(value=0)
         shared = SimpleShared()
-        g = Graph(edges=[((START, inc), (inc, async_router), (noop, END), END)])
+        g = Graph(edges=[((START, inc), (inc, async_router), END)])
         result_state, _ = asyncio.get_event_loop().run_until_complete(g(state, shared))
         assert result_state.value == 1
 
@@ -279,7 +279,6 @@ class TestGraphParallelExecution:
         g = Graph(edges=[(
             (START, [sv, sn]),
             ([sv, sn], join),
-            (join, END),
             END)
         ])
         result_state, _ = asyncio.get_event_loop().run_until_complete(g(state, shared))
@@ -324,7 +323,6 @@ class TestGraphErrorEdges:
         g = Graph(edges=[(
             (START, raiser),
             (ValueError, recovery),
-            (recovery, END),
             END)
         ])
         result_state, _ = asyncio.get_event_loop().run_until_complete(g(state, shared))
@@ -339,7 +337,6 @@ class TestGraphErrorEdges:
         g = Graph(edges=[(
             (START, raiser),
             ((raiser, RuntimeError), recovery),
-            (recovery, END),
             END)
         ])
         result_state, _ = asyncio.get_event_loop().run_until_complete(g(state, shared))
@@ -387,7 +384,6 @@ class TestGraphInstantEdges:
         g = Graph(edges=[(
             (START, inc),
             (inc, noop, Config(instant=True)),
-            (noop, END),
             END)
         ])
         result_state, _ = asyncio.get_event_loop().run_until_complete(g(state, shared))
@@ -412,7 +408,6 @@ class TestGraphMultiSourceEdges:
             (START, [n1, n3]),
             (n3, n2),
             ([n1, n2], join),
-            (join, END),
             END)
         ])
         result_state, _ = asyncio.get_event_loop().run_until_complete(g(state, shared))
