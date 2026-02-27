@@ -27,6 +27,9 @@ type BranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[Edge[T, S] | N
 
 
 class Types[T: StateProtocol, S: SharedProtocol]:
+    """
+    Typeguards for runtime typechecking.
+    """
 
     @classmethod
     def is_node_tupel(cls, edge: tuple[Any, ...]) -> TypeGuard[NodeTupel[T, S]]:
@@ -107,7 +110,7 @@ class Config(BaseModel):
     Configuration for the edge.
 
     Attributes:
-        instant: If the edge should be executed parallel to the source node. Instant edges are traversed recursively. Be sure to avoid infinite loops.
+        instant: If the edge should be executed parallel to the source node. Instant edges are traversed recursively. Make sure to avoid infinite loops.
     """
 
     instant: bool = False
@@ -125,13 +128,13 @@ class ErrorConfig(BaseModel):
 
 class BaseEntry[T: StateProtocol, S: SharedProtocol](BaseModel):
     """
-    Base class for the values of edge indexing dictionaries of the graph.
+    Base class for the values of edge indexing dictionaries of a branch.
 
     Do not instantiate directly.
 
     Attributes:
         next: The unresolved targets of the edge.
-        index: The original index of the entry in the list of edges.
+        index: The original index of the entry in the list of edges of the branch.
     """
 
     next: Next[T, S]
@@ -145,7 +148,7 @@ class BaseEntry[T: StateProtocol, S: SharedProtocol](BaseModel):
 
 class Entry[T: StateProtocol, S: SharedProtocol](BaseEntry[T, S]):
     """
-    A value of the edge indexing dictionary of the graph.
+    A value of the edge indexing dictionary of a branch.
 
     Attributes:
         next: The unresolved targets of the edge.
@@ -157,7 +160,7 @@ class Entry[T: StateProtocol, S: SharedProtocol](BaseEntry[T, S]):
 
 class ErrorEntry[T: StateProtocol, S: SharedProtocol](BaseEntry[T, S]):
     """
-    A value of the error edge indexing dictionary of the graph.
+    A value of the error edge indexing dictionary of a branch.
 
     Attributes:
         next: The unresolved targets of the edge.
