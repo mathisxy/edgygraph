@@ -1,12 +1,12 @@
 from __future__ import annotations
-from typing import Hashable
+from typing import Hashable, cast
 from collections import defaultdict
-from collections.abc import Hashable, Sequence
+from collections.abc import Hashable
 import asyncio
 
 from ..states import StateProtocol, SharedProtocol
 from ..diff import Change
-from .types import NodeTupel, Edge, ErrorEdge, Join, Entry, ErrorEntry, SingleSource, SingleErrorSource, Config, ErrorConfig, Types
+from .types import Edge, ErrorEdge, Entry, ErrorEntry, SingleSource, SingleErrorSource, Config, ErrorConfig, Types, SingleSourceBranchContainer
 
 
 class Branch[T: StateProtocol, S: SharedProtocol]:
@@ -21,11 +21,11 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
     """
 
 
-    def __init__(self, edges: Sequence[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S]], start: SingleSource[T, S], join: Join[T, S] = None) -> None:
+    def __init__(self, edges: SingleSourceBranchContainer[T, S]) -> None:
 
-        self.edges = edges
-        self.start = start
-        self.join = join
+        self.edges = edges[:-1]
+        self.source = edges[0]
+        self.join = edges[-1]
 
         self.result: asyncio.Future[dict[tuple[Hashable, ...], Change]] | None = None
 
@@ -44,46 +44,69 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
         - `error_edge_index` if the edge is an error edge
         """
 
-        for i, edge in enumerate(self.edges):
+        # for i, edge in enumerate(self.edges):
 
-            # Node Sequence
-            if Types[T, S].is_node_tupel(edge):
 
-                for source, next in zip(edge, edge[1:]):
-                    assert Types[T, S].is_single_source(source), f"Unexpected source type in node sequence: {source}"
-                    assert Types[T, S].is_next(next), f"Unexpected next type in node sequence: {next}"
-                    self.edge_index[source].append(Entry[T, S](next=next, config=Config(), index=i))
-                    
-                continue
+        for i, (source, next) in enumerate(zip(self.edges, [*self.edges[1:], False])):
 
-            match edge:
-                case (source, next, config): pass
-                case (source, next): config = None
-                case _: raise ValueError(f"Invalid edge format: {edge}")
+            if Types[T, S].is_any_edge(source):
+                edge = source
+
+            elif Types[T, S].is_any_single_source(source) and Types[T, S].is_next(next):
+                edge = (source, next)
+
+            elif Types[T, S].is_next(next) and not Types[T, S].is_any_single_source(next): # is next but not single source -> cannot be reached and cannot be a source
+                raise ValueError(f"Next is never reached: source: {source}, next: {next} in branch with source {self.source} and join {self.join}")
             
-            if Types[T, S].is_error_source(source):
-                config = config or ErrorConfig()
-                assert isinstance(config, ErrorConfig), f"Unexpected properties type for error edge {edge}: {config}"
-
-                if Types[T, S].is_single_error_source(source):
-                    self.error_edge_index[source].append(ErrorEntry[T, S](next=next, config=config, index=i))
-                elif Types[T, S].is_single_error_source_sequence(source):
-                    for single_error_source in source:
-                        self.error_edge_index[single_error_source].append(ErrorEntry[T, S](next=next, config=config, index=i))
-                else:
-                    raise ValueError(f"Invalid error source: {source}")
-                
-            elif Types[T, S].is_source(source):
-                config = config or Config()
-                assert isinstance(config, Config), f"Unexpected properties type for node edge {edge}: {config}"
-
-                if Types[T, S].is_single_source(source):
-                    self.edge_index[source].append(Entry[T, S](next=next, config=config, index=i))
-                elif Types[T, S].is_single_source_sequence(source):
-                    for single_source in source:
-                        self.edge_index[single_source].append(Entry[T, S](next=next, config=config, index=i))
-                else:
-                    raise ValueError(f"Invalid source: {source}")
-
             else:
-                raise ValueError(f"Invalid edge source: {edge[0]}")
+                continue # Next meets source, skip
+                
+            self.index_edge(cast(Edge[T, S] | ErrorEdge[T, S], edge), i)
+        
+            
+    def index_edge(self, edge: Edge[T, S] | ErrorEdge[T, S], index: int) -> None:
+        """
+        Index a single edge by its source.
+
+        Append the edge to
+        - `edge_index` if the edge is a normal edge
+        - `error_edge_index` if the edge is an error edge
+
+        Args:
+            edge: The edge to index.
+            index: The original index of the edge in the list of edges of the branch.
+        """
+
+        print(f"Indexing edge {edge} at index {index} in branch with source {self.source} and join {self.join}")
+
+        match edge:
+            case (source, next, config): pass
+            case (source, next): config = None
+            case _: raise ValueError(f"Invalid edge format: {edge}")
+        
+        if Types[T, S].is_error_source(source):
+            config = config or ErrorConfig()
+            assert isinstance(config, ErrorConfig), f"Unexpected properties type for error edge {edge}: {config}"
+
+            if Types[T, S].is_single_error_source(source):
+                self.error_edge_index[source].append(ErrorEntry[T, S](next=next, config=config, index=index))
+            elif Types[T, S].is_single_error_source_list(source):
+                for single_error_source in source:
+                    self.error_edge_index[single_error_source].append(ErrorEntry[T, S](next=next, config=config, index=index))
+            else:
+                raise ValueError(f"Invalid error source: {source}")
+            
+        elif Types[T, S].is_source(source):
+            config = config or Config()
+            assert isinstance(config, Config), f"Unexpected properties type for node edge {edge}: {config}"
+
+            if Types[T, S].is_single_source(source):
+                self.edge_index[source].append(Entry[T, S](next=next, config=config, index=index))
+            elif Types[T, S].is_single_source_list(source):
+                for single_source in source:
+                    self.edge_index[single_source].append(Entry[T, S](next=next, config=config, index=index))
+            else:
+                raise ValueError(f"Invalid source: {source}")
+
+        else:
+            raise ValueError(f"Invalid edge source: {edge[0]}")

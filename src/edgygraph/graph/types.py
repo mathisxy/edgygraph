@@ -1,22 +1,21 @@
 from __future__ import annotations
 from typing import Callable, Awaitable, Any, TypeGuard, cast
-from collections.abc import Sequence
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..states import StateProtocol, SharedProtocol
 from ..nodes import Node, START, END
 
 
-type NodeTupel[T: StateProtocol, S: SharedProtocol] = tuple[SingleSource[T, S], *tuple[Node[T, S], ...]] | tuple[SingleSource[T, S], *tuple[Node[T, S], ...], Next[T, S]]
+# type NodeTupel[T: StateProtocol, S: SharedProtocol] = tuple[SingleSource[T, S], *tuple[Node[T, S], ...]] | tuple[SingleSource[T, S], *tuple[Node[T, S], ...], Next[T, S]]
 
 type SingleSource[T: StateProtocol, S: SharedProtocol] = Node[T, S] | type[START]
-type Source[T: StateProtocol, S: SharedProtocol] = SingleSource[T, S] | Sequence[SingleSource[T, S]]
+type Source[T: StateProtocol, S: SharedProtocol] = SingleSource[T, S] | list[SingleSource[T, S]]
 
 type SingleErrorSource[T: StateProtocol, S: SharedProtocol] = type[Exception] | tuple[Node[T, S], type[Exception]]
-type ErrorSource[T: StateProtocol, S: SharedProtocol] = SingleErrorSource[T, S] | Sequence[SingleErrorSource[T, S]]
+type ErrorSource[T: StateProtocol, S: SharedProtocol] = SingleErrorSource[T, S] | list[SingleErrorSource[T, S]]
 
 type SingleNext[T: StateProtocol, S: SharedProtocol] = Node[T, S] | None
-type ResolvedNext[T: StateProtocol, S: SharedProtocol] = SingleNext[T, S] | Sequence[SingleNext[T, S]]
+type ResolvedNext[T: StateProtocol, S: SharedProtocol] = SingleNext[T, S] | list[SingleNext[T, S]]
 type Next[T: StateProtocol, S: SharedProtocol] = ResolvedNext[T, S] | Callable[[T, S], ResolvedNext[T, S]] | Callable[[T, S], Awaitable[ResolvedNext[T, S]]]
 
 
@@ -24,21 +23,14 @@ type Edge[T: StateProtocol, S: SharedProtocol] = tuple[Source[T, S], Next[T, S]]
 type ErrorEdge[T: StateProtocol, S: SharedProtocol] = tuple[ErrorSource[T, S], Next[T, S]] | tuple[ErrorSource[T, S], Next[T, S], ErrorConfig]
 
 type Join[T: StateProtocol, S: SharedProtocol] = Next[T, S] | type[END]
-type BranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[Edge[T, S] | NodeTupel[T, S], *tuple[Edge[T, S] | ErrorEdge[T, S] | NodeTupel[T, S], ...], Join[T, S]]
+type BranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[Source[T, S], Next[T, S], *tuple[Edge[T, S] | ErrorEdge[T, S] | Node[T, S] | Next[T, S], ...], Join[T, S]]
+type SingleSourceBranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[SingleSource[T, S], Next[T, S], *tuple[Edge[T, S] | ErrorEdge[T, S] | Node[T, S] | Next[T, S], ...], Join[T, S]]
 
 
 class Types[T: StateProtocol, S: SharedProtocol]:
     """
     Typeguards for runtime typechecking.
     """
-
-    @classmethod
-    def is_node_tupel(cls, edge: tuple[Any, ...]) -> TypeGuard[NodeTupel[T, S]]:
-        return len(edge) >= 2 and (cls.is_single_source(edge[0]) and cls.is_only_node_tuple(edge[1:-1]) and cls.is_next(edge[-1]))
-
-    @classmethod
-    def is_only_node_tuple(cls, edge: tuple[Any, ...]) -> TypeGuard[tuple[*tuple[T, S]]]:
-        return all(isinstance(n, Node) for n in edge)
 
     @classmethod
     def is_next(cls, x: Any) -> TypeGuard[Next[T, S]]:
@@ -51,12 +43,12 @@ class Types[T: StateProtocol, S: SharedProtocol]:
     def is_resolved_next(cls, x: Any) -> TypeGuard[ResolvedNext[T, S]]:
         return (
             cls.is_single_next(x) or
-            cls.is_single_next_sequence(x)
+            cls.is_single_next_list(x)
         )
 
     @classmethod
-    def is_single_next_sequence(cls, x: Any) -> TypeGuard[Sequence[SingleNext[T, S]]]:
-        return isinstance(x, Sequence) and all(cls.is_single_next(n) for n in cast(Sequence[Any], x))
+    def is_single_next_list(cls, x: Any) -> TypeGuard[list[SingleNext[T, S]]]:
+        return isinstance(x, list) and all(cls.is_single_next(n) for n in cast(list[Any], x))
 
 
     @classmethod
@@ -70,25 +62,25 @@ class Types[T: StateProtocol, S: SharedProtocol]:
     def is_source(cls, x: Any) -> TypeGuard[Source[T, S]]:
         return (
             cls.is_single_source(x) or
-            (isinstance(x, Sequence) and all(cls.is_single_source(n) for n in cast(Sequence[Any], x)))
+            cls.is_single_source_list(x)
         )
 
     @classmethod
     def is_single_source(cls, x: Any) -> TypeGuard[SingleSource[T, S]]:
         return (
-            x is START or   
+            x is START or
             isinstance(x, Node)
         )
 
     @classmethod
-    def is_single_source_sequence(cls, x: Any) -> TypeGuard[Sequence[SingleSource[T, S]]]:
-        return isinstance(x, Sequence) and all(cls.is_single_source(n) for n in cast(Sequence[Any], x))
+    def is_single_source_list(cls, x: Any) -> TypeGuard[list[SingleSource[T, S]]]:
+        return isinstance(x, list) and all(cls.is_single_source(n) for n in cast(list[Any], x))
 
     @classmethod
     def is_error_source(cls, x: Any) -> TypeGuard[ErrorSource[T, S]]:
         return (
             cls.is_single_error_source(x) or
-            (isinstance(x, Sequence) and all(cls.is_single_error_source(n) for n in cast(Sequence[Any], x)))
+            cls.is_single_error_source_list(x)
         )
 
     @classmethod
@@ -99,10 +91,40 @@ class Types[T: StateProtocol, S: SharedProtocol]:
         )
     
     @classmethod
-    def is_single_error_source_sequence(cls, x: Any) -> TypeGuard[Sequence[SingleErrorSource[T, S]]]:
-        return isinstance(x, Sequence) and all(cls.is_single_error_source(n) for n in cast(Sequence[Any], x)) and len(cast(Sequence[Any], x)) > 1   
-
+    def is_single_error_source_list(cls, x: Any) -> TypeGuard[list[SingleErrorSource[T, S]]]:
+        return isinstance(x, list) and all(cls.is_single_error_source(n) for n in cast(list[Any], x))
     
+    @classmethod
+    def is_any_source(cls, x: Any) -> TypeGuard[Source[T, S] | ErrorSource[T, S]]:
+        return cls.is_source(x) or cls.is_error_source(x)
+    
+    @classmethod
+    def is_any_single_source(cls, x: Any) -> TypeGuard[SingleSource[T, S] | SingleErrorSource[T, S]]:
+        return cls.is_single_source(x) or cls.is_single_error_source(x)
+    
+    @classmethod
+    def is_any_single_source_list(cls, x: Any) -> TypeGuard[list[SingleSource[T, S]] | list[SingleErrorSource[T, S]]]:
+        return cls.is_single_source_list(x) or cls.is_single_error_source_list(x)
+    
+    @classmethod
+    def is_join(cls, x: Any) -> TypeGuard[Join[T, S]]:
+        return x is END or cls.is_next(x)
+
+    @classmethod
+    def is_edge(cls, x: Any) -> TypeGuard[Edge[T, S]]:
+        return (
+            isinstance(x, tuple) and len(cast(tuple[Any], x)) in (2, 3) and cls.is_source(x[0]) and cls.is_next(x[1]) and (len(cast(tuple[Any], x)) == 2 or isinstance(x[2], Config))
+        )
+    
+    @classmethod
+    def is_error_edge(cls, x: Any) -> TypeGuard[ErrorEdge[T, S]]:
+        return (
+            isinstance(x, tuple) and len(cast(tuple[Any], x)) in (2, 3) and cls.is_error_source(x[0]) and cls.is_next(x[1]) and (len(cast(tuple[Any], x)) == 2 or isinstance(x[2], ErrorConfig))
+        )
+    
+    @classmethod
+    def is_any_edge(cls, x: Any) -> TypeGuard[Edge[T, S] | ErrorEdge[T, S]]:
+        return cls.is_edge(x) or cls.is_error_edge(x)
 
 
 class Config(BaseModel):

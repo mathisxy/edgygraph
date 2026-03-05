@@ -32,12 +32,13 @@ node = MyNode()
 ### GRAPH
 
 graph = Graph[MyState, Shared](
-    edges=[(
+    edges=[
         (
             START,
-            node
-        ),
-        END)
+            node,
+
+            END # join node
+        )
     ]
 )
 

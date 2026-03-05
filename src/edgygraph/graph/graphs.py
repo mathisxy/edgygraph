@@ -6,6 +6,7 @@ from collections import defaultdict
 from collections.abc import Hashable, Sequence
 import asyncio
 import inspect
+import traceback
 
 from ..states import StateProtocol, SharedProtocol
 from ..diff import Change, ChangeConflictException, Diff
@@ -131,22 +132,21 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
     def index_branches(self) -> None:
         for branch_container in self.edges:
 
-            source = branch_container[0][0]
+            if len(branch_container) < 3:
+                raise ValueError(f"Branch container must have at least one node between source and join, got elements: {branch_container}")
 
-            if Types[T, S].is_single_source(source):
+            if Types[T, S].is_single_source(branch_container[0]):
+                sources = [branch_container[0]]
+            elif Types[T, S].is_single_source_list(branch_container[0]):
+                sources = branch_container[0]
+            else:
+                raise ValueError(f"Invalid branch source: {branch_container[0]}")
 
-                branch = Branch[T, S](branch_container[:-1], source, branch_container[-1])
+            for source in sources:
+
+                branch = Branch[T, S]((source, *branch_container[1:]))
                 self.branch_registry[source].append(branch)
 
-            elif Types[T, S].is_single_source_sequence(source):
-
-                for start_node in source:
-
-                    branch = Branch[T, S](branch_container[:-1], start_node, branch_container[-1])
-                    self.branch_registry[start_node].append(branch)
-
-            else:
-                raise ValueError(f"Invalid source type: {source}")
 
     async def __call__(self, state: T, shared: S) -> tuple[T, S]:
         """
@@ -203,7 +203,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
         try:
             
-            next_nodes: list[NextNode[T, S]] = await self.get_next(state, shared, branch.start, branch)
+            next_nodes: list[NextNode[T, S]] = await self.get_next(state, shared, branch.source, branch)
 
             while next_nodes:
 
@@ -431,7 +431,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
         next_list: list[NextNode[T, S]] = []
 
-        if Types[T, S].is_single_source_sequence(current_nodes):
+        if Types[T, S].is_single_source_list(current_nodes):
             for current_node in current_nodes:
                 next_list.extend(
                     await self.resolve_entries(state, shared, branch.edge_index[current_node])
@@ -483,13 +483,13 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
         Returns:
             The next nodes to execute.
         """
-
+        
         next_nodes: list[NextNode[T, S]] = []
         unhandled: list[Exception] = []
 
         for e in eg.exceptions:            
 
-            print(e)
+            print(traceback.format_exception(type(e), e, e.__traceback__))
 
             source_node: NextNode[T, S] | None = getattr(e, "source_node", None)
 
@@ -519,7 +519,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
         
         if unhandled:
             raise ExceptionGroup("Unhandled node exceptions", unhandled)
-
+        
         return next_nodes
     
 
@@ -546,7 +546,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
         """
         Resolve the next to nodes.
 
-        Make sure to ONLY call this method ONCE per execution of the corresponding edge.
+        Make sure to call this method exactly ONCE per traversion of the edges, because callable edges are called.
     
         Args:
             state: The current state.
@@ -593,7 +593,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
                     raise ValueError(f"Invalid next type: {type(x)}")
 
         
-        if Types[T, S].is_single_next_sequence(next):
+        if Types[T, S].is_single_next_list(next):
             for x in next:
                 match(x)
 

@@ -6,6 +6,10 @@ import asyncio
 
 class GamblingState(State):
 
+    # Config
+    upper: int
+
+    # Runtime
     user_guess: int | None = None
     number: int = 0
     try_count: int = 0
@@ -17,10 +21,15 @@ class GuessNode(Node[GamblingState, Shared]):
 
     async def __call__(self, state: GamblingState, shared: Shared) -> None:
         
-        guess_str = input(f"Guess a number between 1 and 10: ")
+        guess_str = input(f"Guess a number between 1 and {state.upper}: ")
 
         try:
             state.user_guess = int(guess_str)
+
+            if state.user_guess < 1 or state.user_guess > state.upper:
+                print(f"Please enter a number between 1 and {state.upper}.")
+                state.user_guess = None
+
             state.try_count += 1
         except ValueError:
             print("Invalid input. Please enter a number.")
@@ -31,7 +40,7 @@ class RollDiceNode(Node[GamblingState, Shared]):
 
     async def __call__(self, state: GamblingState, shared: Shared) -> None:
         
-        state.number = randint(1, 10)
+        state.number = randint(1, state.upper)
 
 
 class FailNode(Node[GamblingState, Shared]):
@@ -54,7 +63,7 @@ class WinNode(Node[GamblingState, Shared]):
 
 ### INSTANCES
 
-state = GamblingState()
+state = GamblingState(upper=10)
 shared = Shared()
 
 guess = GuessNode()
@@ -66,23 +75,19 @@ win = WinNode()
 ### GRAPH
 
 asyncio.run(Graph[GamblingState, Shared](
-    edges=[(
+    edges=[
         (
             START,
-            guess
-        ),
-        (
             guess,
-            lambda st, sh: roll if st.user_guess is not None else guess
-        ),
-        (
+            lambda st, sh: roll if st.user_guess is not None else guess,
+
             roll,
-            lambda st, sh: win if st.user_guess == st.number else fail
-        ),
-        (
+            lambda st, sh: win if st.user_guess == st.number else fail,
+
             fail,
-            guess
-        ), 
-        END
-    )]
+            guess,
+
+            END # join node
+        )
+    ]
 )(state, shared))
