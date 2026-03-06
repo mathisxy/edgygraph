@@ -1,4 +1,6 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
+from copy import copy
 
 from .states import StateProtocol, SharedProtocol
 
@@ -32,6 +34,19 @@ class Node[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol]
             None. The instance references of the arguments are used in the graph to enable variance.
         """
         pass
+
+    
+    def copy(self) -> Node[T, S]:
+        """
+        Creates a copy of the node. This can be used when the same node is used multiple times in the graph.
+
+        Args:
+            node: The node to copy.
+
+        Returns:
+            A copy of the node.
+        """
+        return copy(self)
 
 
 

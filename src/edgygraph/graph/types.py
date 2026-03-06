@@ -36,7 +36,11 @@ class Types[T: StateProtocol, S: SharedProtocol]:
     def is_next(cls, x: Any) -> TypeGuard[Next[T, S]]:
         return (
             cls.is_resolved_next(x) or
-            callable(x)
+            (callable(x) and not (
+                cls.is_any_source(x) or
+                cls.is_resolved_next(x) or
+                x is END
+            ))
         )
 
     @classmethod
