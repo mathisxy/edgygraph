@@ -76,16 +76,14 @@ node = MyNode()
 ### Create a Graph
 
 ```python
-Graph[MyState, Shared](
-    edges=[(
+graph = Graph[MyState, Shared](
+    edges=[
         (
             START,
-            node
-        ),
-        (
             node,
-            END
-        ), END)
+
+            END,
+        )
     ]
 )
 ```
