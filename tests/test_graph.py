@@ -3,7 +3,7 @@ import asyncio
 from asyncio import Lock
 from collections.abc import Hashable
 
-from edgygraph import Graph, Node, State, Shared, START, END, Config
+from edgygraph import Graph, Node, State, Shared, START, END
 from edgygraph.diff import ChangeTypes, Diff, Change, ChangeConflictException
 
 
@@ -183,7 +183,7 @@ class TestGraphBasicExecution:
         n2 = IncrementNode()
         state = SimpleState(value=0)
         shared = SimpleShared()
-        g = Graph(edges=[(START, n1, (n1, n2), (n2, None), END)])
+        g = Graph(edges=[(START, n1, n2, END)])
         result_state, _ = asyncio.run(g(state, shared))
         assert result_state.value == 2
 
@@ -322,7 +322,8 @@ class TestGraphErrorEdges:
         shared = SimpleShared()
         g = Graph(edges=[(
             START, raiser,
-            (ValueError, recovery),
+            ValueError, 
+            recovery,
             END)
         ])
         result_state, _ = asyncio.run(g(state, shared))
@@ -336,7 +337,8 @@ class TestGraphErrorEdges:
         shared = SimpleShared()
         g = Graph(edges=[(
             START, raiser,
-            ((raiser, RuntimeError), recovery),
+            (raiser, RuntimeError),
+            recovery,
             END)
         ])
         result_state, _ = asyncio.run(g(state, shared))
@@ -362,7 +364,8 @@ class TestGraphErrorEdges:
         shared = SimpleShared()
         g = Graph(edges=[(
             START, raiser,
-            (ValueError, RecoveryNode()),
+            ValueError, 
+            RecoveryNode(),
             END)
         ])
         with pytest.raises(ExceptionGroup):
@@ -382,8 +385,8 @@ class TestGraphInstantEdges:
         state = SimpleState(value=0)
         shared = SimpleShared()
         g = Graph(edges=[(
-            START, inc,
-            (inc, noop, Config(instant=True)),
+            START, 
+            [inc, noop],
             END)
         ])
         result_state, _ = asyncio.run(g(state, shared))
@@ -405,9 +408,11 @@ class TestGraphMultiSourceEdges:
         shared = SimpleShared()
 
         g = Graph(edges=[(
-            START, [n1, n3],
-            (n3, n2),
-            ([n1, n2], join),
+            START, 
+            [n1, -n3],
+            n2,
+            [+n3, +n2], 
+            join,
             END)
         ])
         result_state, _ = asyncio.run(g(state, shared))
