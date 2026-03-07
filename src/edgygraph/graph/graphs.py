@@ -22,144 +22,86 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
     Create and execute a graph defined by a list of edges
 
 
-    ## Generic Typing Parameters 
+    ## Generic Typing
+    The graph supports different state management strategies through generic parameters:
 
-    Use protocols or classes that extend **StateProtocol** and **SharedProtocol** or **State** and **Shared** to define the supported state types.
+    * **Simple Inheritance (Covariance):** Extend `State` and `Shared` classes. 
+        Ideal for smaller projects with minimal boilerplate.
+    * **Protocol-based (Duck Typing):** Implement `StateProtocol` and `SharedProtocol`. 
+        Recommended for scalable projects where multiple state types are merged.
+    * **Disabled Type Checking:** Use `typing.Any` to bypass strict typing.
 
-    ### Inheritance with Variance
+    ---
 
-    With covariance its possible to use nodes that use more specific State and Shared classes as the generic typing parameters. Requires an inheritance structure.
+    ## Branching & Edge Logic
+    A graph consists of one or more **branches**. A branch is defined as a tuple: 
+    `branch = (Source, Next_1, ..., Next_n, JoinParameter)`
 
-    This is recommended for smaller projects because it needs less boilerplate.
-
-    ### Duck Typing
-
-    For the more flexible approach with better scaling use protocols to define the supported state types. Remember to always extend `typing.Protocol` in the child classes for typing.
-
-    This is recommended for scalable projects where many different state types need to be joined in one graph. See [edgynodes](https://github.com/mathisxy/edgynodes/) for an example.
-
-    ### Disable Type Checking
-
-    If you want to disable type checking for the graph, you can use `typing.Any` as generic typing parameters in the graph.
-
-
-    ## Branches
-
-    A graph is defined by a number of branches, with at least one branch having `START` as their first source element.
-
-    A branch consists of a tuple of `Source` or/and `Next` elements. The first element of the tuple is the source of the branch, the last element is the join element of the branch. 
-
-    ### Edges
-
-    The edges of a branch are defined by a tuple of elements, which resolve to edges.
-
-    An edge consists of a `Source` and a `Next` element.
-
-    The edges are calculated as follows:
+    ### Edge Generation
+    Edges are automatically generated between adjacent elements in the tuple, **excluding the final JoinParameter**:
 
     ```
     T = (E_0, …, E_{n−1})
 
     ∀ x ∈ {0, …, n−3}: # n−3 because the last element is the join element
 
-        {(a, b) ∈ E_x × E_{x+1} | a is a Source ∧ b is a Next}
+        Edges = {(a, b) ∈ E_x × E_{x+1} | a is a Source ∧ b is a Next}
 
     where × denotes the Cartesian product.
 
     ```
 
-    Therefore the tuple must include at least a `Source`, a `Next`, and the join parameter, which is `element_{n-1}` and excluded from the edge calculation.
+    **Example:**
+    `edges = [(START, node1, node2, node3)]`
+    1. (START -> node1)
+    2. (node1 -> node2)
 
-    This example would resolve to the following edges:
+    *Note: `node3` is the join point, not a target of `node2`.*
 
-    ```python
-    edges=[(
-        START,
-        node1,
-        node2,
-        
-        node3
-    )]
- 
-    (START, node1),
-    (node1, node2)
-    # NOT (node2, node3), see chapter 'Joining'
-    ```
+    ---
+
+    ## Synchronization
+
+    The graph manages state consistency on two levels:
+
+    - **Internal (Step Sync)**
+        Parallel executing nodes in branches are synchronized at each step.
+        The state is merged after each step.
+
+    - **External (Branch Sync)**
+        Branches are synchronized at the `join` point.
+
 
     ### Spawning
+    A branch is triggered **immediately before** its `Source` is executed in another branch.
+    * `START`: Initial execution point.
+    * `Node`: Spawns when a specific node is executed in another branch.
+    * `List[Node]`: Spawns when any node in the list is executed in another branch.
 
-    A branch is spawned when the source of the branch is triggered.
-
-    The source of the branch can be a node or `START` or a list of that.
-
-    In this example it would be on `START`:
-
-    ```python
-    edges=[(
-        START,
-        node1,
-        node2,
-        
-        END
-    )]
-    ```
-
-    In this example it would be on `START` and on `node1` each, spawning two branches total:
-
-    ```python
-    edges=[(
-       [START, node1], 
-       node2,
-
-       node3 # join node
-    )]
-    ```
 
     ### Joining
+    Joining synchronizes multiple branches before moving to the next step.
+    * `None`: No synchronization and no merge of the state.
+    * `END`: Joins all branches at the graph's conclusion to return the merged state.
+    * `Node`: Other branches wait until all branches targeting this node have arrived and then merge the states before executing the node.
 
-    Joining describes the process of merging the states of multiple branches into one.
+    ---
 
-    The join parameter defines the node, exactly before which the branches will be joined. Other branches will wait in each step for all other branches that aim to join on its next node.
+    ## Notation Reference
 
-    The join parameter can be of the following types:
+    ```
+    Source: Node, START, Exception, (Exception, Node), List[Source]
+    Next:   Node, None, List[Next], Callable[[State, Shared], Next]
+    Join:   Node, END, None
+    ```
 
-    - `None`: The branch will not be joined.
-    - `END`: The branch will be joined at the end of the graph, the merged state will be returned as the result of the graph.
-    - A single node instance: The branch will be joined directly before another branch executes this specific node.
-
-    ### Notation
-
-    `Source` and `Next` parameters allow the following types:
-    - A single node instance.
-
-    `Source` can also be:
-    - `START`: The start of the graph.
-    - `Exception`: Triggers when an exception occurs in the graph in an edge located BEFORE this in the tuple.
-    - `(Exception, node)` or `(Exception, [node1, node2])`: Triggers when an exception occurs in the graph in an edge located BEFORE this in the tuple and the exception occuredd in the node `node` or one of the nodes `node1` and `node2`.
-    - A list of all allowed types.
-
-    `Next` can also be:
-    - A list of all allowed types.
-    - A function (sync/async) that takes the state and shared and returns any of the allowed types.
-
-
-    The following notations are allowed for edges:
-
-    - `node1, node2`: A single edge from node1 to node2.
-    - `START, node1`: A single edge from the start of the graph to node1. START is only called when the branch has `START` as source.
-    - `node, None`: A redundant edge that does nothing.
-    - `[source1, source2], target`: Multiple edges from source1 and source2 to target.
-    - `(source, [target1, target2])`: Multiple edges from source to target1 and target2.
-    - `([source1, source2], [target1, target2])`: Multiple edges from source1 and source2 to target1 and target2. This will create 4 edges in total.
-    - `(source, lambda st, sh: [target1, target2] if sh.x)`: A dynamic edge from source to target. The function takes the state and the shared state as arguments. It must return a node, a list of nodes, END or None. Async functions are also supported. They are executed sequentially so there are no race conditions.
-    - `(source, target, Config(instant=True))`: An instant edge from source to target. The target nodes are collected recursively and executed parallel to the source node. Make sure not to create cycles.
-    - `(ValueError, target)`: An error edge from ValueError to target. The edge is traversed if a node, which is executed by an incoming edge located BEFORE this error edge in the edge list, throws a ValueError.
-    - `((source, Exception), target)`: An error edge from Exception to target. The edge is traversed if the source node is executed by an incoming edge which is located BEFORE this error edge in the edge list throws an Exception. Source node lists are also supported.
-    - `(Exception, target, ErrorConfig(propagate=True))`: If propagate is `True`, the exception is propagated to the next error edges in the edge list. If the exception is not handled by any error edge, it is ultimately raised.
-
+    ### Error Handling
+    The `Exception` source can be used to create fallback paths:
+    * `Exception`: Catches any error in preceding nodes of the same branch.
+    * `(Exception, [node1, node2])`: Specifically handles errors occurring in `node1` or `node2`.
 
     Attributes:
-        edges: A list of edges of compatible nodes that build the graph.
+        edges: A list of branches with compatible nodes that build the graph.
         hooks: A list of graph hook classes. Usable for debugging, logging and custom logic.
     """
 
