@@ -12,7 +12,7 @@ class Node[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol]
     Represents a node in the graph.
 
     The generic types define the type of state and shared state that the node expects.
-    Due to variance the node can also take any subtype of the state and shared state.
+    Due to variance or the usage of protocols, the node can also take any subtype of the state and shared state.
 
     The node must implement the `__call__` method to run the node.
     """

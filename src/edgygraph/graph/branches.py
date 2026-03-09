@@ -13,6 +13,8 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
     """
     A branch of the graph.
 
+    The join parameter is extracted from the last element of the edges.
+
 
     Args:
         edges: The edges of the branch.
@@ -38,10 +40,6 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
     def index_edges(self) -> None:
         """
         Index the edges by single source.
-
-        Append the edges to
-        - `edge_index` if the edge is a normal edge
-        - `error_edge_index` if the edge is an error edge
         """
 
 
@@ -109,6 +107,17 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
     def filter_source_by_config(self, source: SourceWithConfig[T, S] | ErrorSource[T, S]) -> Source[T, S] | ErrorSource[T, S]:
         """
         Filter the source by its config.
+
+        The config is used to track the Operators `-` and `+` on nodes.
+
+        Args:
+            source: The source to filter.
+
+        Returns:
+            The filtered source without config.
+
+        Raises:
+            EmptyFilterResult: If the whole source is filtered out.
         """
 
         if Types[T, S].is_single_source_with_config(source):
@@ -156,6 +165,17 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
     def filter_next_by_config(self, next: NextWithConfig[T, S]) -> Next[T, S]:
         """
         Filter the next by its config.
+
+        The config is used to track the Operators `-` and `+` on nodes.
+
+        Args:
+            next: The next to filter.
+        
+        Returns:
+            The filtered next without the config.
+
+        Raises:
+            EmptyFilterResult: If the next is filtered out.
         """
 
         if Types[T, S].is_next_callable(next):
