@@ -150,7 +150,6 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
         Index the branches by their sources.
         """
 
-
         for branch_container in self.edges:
 
             if len(branch_container) < 3:

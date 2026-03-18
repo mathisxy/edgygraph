@@ -28,7 +28,7 @@ type NextWithConfig[T: StateProtocol, S: SharedProtocol] = ResolvedNextWithConfi
 
 type BranchJoin[T: StateProtocol, S: SharedProtocol] = SingleNext[T, S] | type[END]
 
-type BranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[Source[T, S], NextWithConfig[T, S], *tuple[SourceWithConfig[T, S] | ErrorSource[T, S] | NextWithConfig[T, S], ...], BranchJoin[T, S]]
+type BranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[Source[T, S], *tuple[SourceWithConfig[T, S] | ErrorSource[T, S] | NextWithConfig[T, S], ...], BranchJoin[T, S]]
 # type SingleSourceBranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[SingleBranchSource[T, S], NextWithConfig[T, S], *tuple[SourceWithConfig[T, S] | ErrorSource[T, S] | NextWithConfig[T, S], ...], BranchJoin[T, S]]
 
 
