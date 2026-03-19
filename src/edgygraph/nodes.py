@@ -17,13 +17,16 @@ class Node[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol]
     The node must implement the `__call__` method to run the node.
     """
 
-    dependencies: list[str] = []
+    dependencies: set[str] = set()
     """The pip dependencies of the node (python packages). On initialization of the node a check is performed if the dependencies are installed with importlib. If not an error is raised."""
 
     @classmethod
     def check_dependencies(cls) -> None:
         """
         Checks if the dependencies of the node are installed.
+
+        Raises:
+            ImportError: If a dependency is not installed.
         """
         for dependency in cls.dependencies:
             try:
@@ -31,6 +34,20 @@ class Node[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol]
             except metadata.PackageNotFoundError:
                 raise ImportError(f"Dependency {dependency} not found but required by node {cls.__name__}. Please install it with pip install {dependency}")
 
+    def __init_subclass__(cls) -> None:
+        """
+        Called when a subclass is created. This is used to collect the dependencies of the node from parent classes.
+
+        Works recursively because it is called on each inheritance level. Therefore the dependencies of all parent classes are collected and stored in the class variable `dependencies` of the child class.
+        """
+        super().__init_subclass__()
+
+        cls.dependencies = cls.dependencies.copy() # To not modify the class variable of the parent
+
+        for base in cls.__bases__: # Called on each inheritance level, therefore its recursive
+            if not issubclass(base, Node):
+                continue
+            cls.dependencies.update(base.dependencies)
 
     def __init__(self) -> None:
         self.check_dependencies()
