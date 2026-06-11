@@ -93,7 +93,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
     ```
     Source: Node, START, Exception, (Exception, Node), List[Source]
-    Next:   Node, None, List[Next], Callable[[State, Shared], Next]
+    Next:   Node, None, List[Next], Callable[[State, Shared], Next], Callable[[State, Shared], Awaitable[Next]]
     Join:   Node, END, None
     ```
 

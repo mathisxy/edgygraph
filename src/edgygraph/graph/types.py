@@ -3,14 +3,14 @@ from typing import Callable, Awaitable, Any, TypeGuard, cast
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..states import StateProtocol, SharedProtocol
-from ..nodes import Node, START, END, NodeConfig
+from ..nodes import NavigationNode, Node, START, END, NodeConfig
 
 
 type Flexible[V] = V | list[V]
 
 type NodeWithConfig[T: StateProtocol, S: SharedProtocol] = tuple[Node[T, S], NodeConfig]
 
-type SingleSource[T: StateProtocol, S: SharedProtocol] = Node[T, S] | type[START]
+type SingleSource[T: StateProtocol, S: SharedProtocol] = Node[T, S] | NavigationNode | type[START]
 type SingleSourceWithConfig[T: StateProtocol, S: SharedProtocol] = NodeWithConfig[T, S] | SingleSource[T, S]
 type Source[T: StateProtocol, S: SharedProtocol] = Flexible[SingleSource[T, S]]
 type SourceWithConfig[T: StateProtocol, S: SharedProtocol] = Flexible[SingleSourceWithConfig[T, S]]
@@ -18,18 +18,18 @@ type SourceWithConfig[T: StateProtocol, S: SharedProtocol] = Flexible[SingleSour
 type SingleErrorSource[T: StateProtocol, S: SharedProtocol] = type[Exception] | tuple[Node[T, S], type[Exception]]
 type ErrorSource[T: StateProtocol, S: SharedProtocol] = Flexible[SingleErrorSource[T, S]]
 
-type SingleNext[T: StateProtocol, S: SharedProtocol] = Node[T, S] | None
+type SingleNext[T: StateProtocol, S: SharedProtocol] = Node[T, S] | NavigationNode | None
 type SingleNextWithConfig[T: StateProtocol, S: SharedProtocol] = NodeWithConfig[T, S] | SingleNext[T, S]
+type NextCallable[T: StateProtocol, S: SharedProtocol] = Callable[[T, S], ResolvedNext[T, S]] | Callable[[T, S], Awaitable[ResolvedNext[T, S]]]
 type ResolvedNext[T: StateProtocol, S: SharedProtocol] = Flexible[SingleNext[T, S]]
 type ResolvedNextWithConfig[T: StateProtocol, S: SharedProtocol] = Flexible[SingleNextWithConfig[T, S]]
-type Next[T: StateProtocol, S: SharedProtocol] = ResolvedNext[T, S] | Callable[[T, S], ResolvedNext[T, S]] | Callable[[T, S], Awaitable[ResolvedNext[T, S]]]
-type NextWithConfig[T: StateProtocol, S: SharedProtocol] = ResolvedNextWithConfig[T, S] | Callable[[T, S], ResolvedNext[T, S]] | Callable[[T, S], Awaitable[ResolvedNext[T, S]]] # Dynamic parameters cannot have a NodeConfig, because it is used for indexing.
+type Next[T: StateProtocol, S: SharedProtocol] = ResolvedNext[T, S] | NextCallable[T, S]
+type NextWithConfig[T: StateProtocol, S: SharedProtocol] = ResolvedNextWithConfig[T, S] | NextCallable[T, S] # Dynamic parameters cannot have a NodeConfig, because it is used for indexing.
 
 
 type BranchJoin[T: StateProtocol, S: SharedProtocol] = SingleNext[T, S] | type[END]
 
 type BranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[Source[T, S], *tuple[SourceWithConfig[T, S] | ErrorSource[T, S] | NextWithConfig[T, S], ...], BranchJoin[T, S]]
-# type SingleSourceBranchContainer[T: StateProtocol, S: SharedProtocol] = tuple[SingleBranchSource[T, S], NextWithConfig[T, S], *tuple[SourceWithConfig[T, S] | ErrorSource[T, S] | NextWithConfig[T, S], ...], BranchJoin[T, S]]
 
 
 class Types[T: StateProtocol, S: SharedProtocol]:
@@ -84,7 +84,7 @@ class Types[T: StateProtocol, S: SharedProtocol]:
         )
     
     @classmethod
-    def is_next_callable(cls, x: Any) -> TypeGuard[Callable[[T, S], ResolvedNext[T, S]] | Callable[[T, S], Awaitable[ResolvedNext[T, S]]]]:
+    def is_next_callable(cls, x: Any) -> TypeGuard[NextCallable[T, S]]:
         return callable(x) and not (
             cls.is_any_source(x) or # includes Node, START, Exceptions
             x is END

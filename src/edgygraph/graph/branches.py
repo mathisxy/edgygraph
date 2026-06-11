@@ -1,12 +1,12 @@
 from __future__ import annotations
-from typing import Hashable
 from collections import defaultdict
 from collections.abc import Hashable
 import asyncio
 
+
 from ..states import StateProtocol, SharedProtocol
 from ..diff import Change
-from .types import Edge, ErrorEdge, Entry, ErrorEntry, SingleErrorSource, Types, BranchContainer, SingleSource, NextWithConfig, SourceWithConfig, Source, SingleNext, Next, ErrorSource
+from .types import Edge, ErrorEdge, Entry, ErrorEntry, NextCallable, SingleErrorSource, Types, BranchContainer, SingleSource, NextWithConfig, SourceWithConfig, Source, SingleNext, Next, ErrorSource
 
 
 class Branch[T: StateProtocol, S: SharedProtocol]:
@@ -31,7 +31,7 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
 
         self.result: asyncio.Future[dict[tuple[Hashable, ...], Change]] | None = None
 
-        self.edge_index: dict[SingleSource[T, S], list[Entry[T, S]]] = defaultdict(list)
+        self.edge_index: dict[SingleSource[T, S] | NextCallable[T, S], list[Entry[T, S]]] = defaultdict(list)
         self.error_edge_index: dict[SingleErrorSource[T, S], list[ErrorEntry[T, S]]] = defaultdict(list)
 
         self.index_edges()

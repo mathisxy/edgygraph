@@ -101,6 +101,15 @@ class Node[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol]
         """
         return (self, NodeConfig(operator="pos"))
 
+
+class NavigationNode():
+    """
+    Represents a navigation node in the graph. This is a node that does not perform any operations on the state or shared state, but is used for navigation in the graph.
+
+    This can be used to create branches in the graph or to indicate the start or end of the graph.
+    """
+
+
 class START:
     """
     Represents a start node
