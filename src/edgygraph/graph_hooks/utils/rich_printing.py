@@ -9,7 +9,7 @@ from rich.rule import Rule
 from rich.tree import Tree
 
 from ...diff import Change, ChangeTypes
-from ...graph.types import NextNode, BranchJoin, SingleSource
+from ...graph.types import NextNode, BranchJoin, Source
 from ...graph.branches import Branch
 from ...states import StateProtocol as State, SharedProtocol as Shared
 
@@ -224,7 +224,7 @@ class GraphRenderer[T: State, S: Shared]:
 
     def render_branch_overview(
         self,
-        branch_registry: dict[SingleSource[T, S], list[Branch[T, S]]],
+        branch_registry: dict[Source[T, S], list[Branch[T, S]]],
         join_registry: dict[BranchJoin[T, S], list[Branch[T, S]]],
     ) -> None:
         """

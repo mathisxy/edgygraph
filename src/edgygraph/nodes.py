@@ -2,7 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from copy import copy
 from pydantic import BaseModel
-from typing import Literal
+from typing import Literal, Self
 from importlib import metadata
 
 from .states import StateProtocol, SharedProtocol
@@ -79,7 +79,7 @@ class Node[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol]
         pass
 
     
-    def copy(self) -> Node[T, S]:
+    def copy(self) -> Self:
         """
         Creates a copy of the node. This can be used when the same node is used multiple times in the graph.
 
@@ -89,17 +89,17 @@ class Node[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol]
         return copy(self)
     
 
-    def __neg__(self) -> tuple[Node[T, S], NodeConfig]:
+    def __neg__(self) -> tuple[NodeConfig, Self]:
         """
         Negates the node. This can be used to indicate that the node should only be used as a next and not as a source.
         """
-        return (self, NodeConfig(operator="neg"))
+        return (NodeConfig(operator="neg"), self)
 
-    def __pos__(self) -> tuple[Node[T, S], NodeConfig]:
+    def __pos__(self) -> tuple[NodeConfig, Self]:
         """
         Positivizes the node. This can be used to indicate that the node should only be used as a source and not as a next.
         """
-        return (self, NodeConfig(operator="pos"))
+        return (NodeConfig(operator="pos"), self)
 
 
 class NavigationNode():
@@ -108,6 +108,18 @@ class NavigationNode():
 
     This can be used to create branches in the graph or to indicate the start or end of the graph.
     """
+
+    def __neg__(self) -> tuple[NodeConfig, Self]:
+        """
+        Negates the node. This can be used to indicate that the node should only be used as a next and not as a source.
+        """
+        return (NodeConfig(operator="neg"), self)
+
+    def __pos__(self) -> tuple[NodeConfig, Self]:
+        """
+        Positivizes the node. This can be used to indicate that the node should only be used as a source and not as a next.
+        """
+        return (NodeConfig(operator="pos"), self)
 
 
 class START:
@@ -123,11 +135,8 @@ class END:
     pass
 
 
-class NodeConfig(BaseModel):
-    """
-    Represents the configuration of a node.
-    """
-    
+class NodeConfig(BaseModel, frozen=True):
+
     operator: Literal["pos", "neg", None] = None
 
     @property

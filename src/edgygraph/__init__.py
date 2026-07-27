@@ -1,11 +1,12 @@
 # from .edges import Edge, START, END
-from .nodes import START, END, Node
+from .nodes import START, END, Node, NavigationNode
 from .states import State, Shared, StateProtocol, SharedProtocol, StateAttribute, SharedAttribute, Stream
 from .graph.graphs import Graph
-# from .graph.types import Config, ErrorConfig
+from .graph.types import BranchContent
 
 __all__ = [
     "Node",
+    "NavigationNode",
     "State",
     "Shared",
     "StateProtocol",
@@ -14,8 +15,7 @@ __all__ = [
     "SharedAttribute",
     "Stream",
     "Graph",
-    # "Config",
-    # "ErrorConfig",
     "START",
     "END",
+    "BranchContent",
 ]

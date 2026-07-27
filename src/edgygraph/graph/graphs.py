@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-from typing import cast, Any, Hashable, Callable
+from typing import cast, Any, Hashable
 from collections import defaultdict
 from collections.abc import Hashable, Sequence
 import asyncio
@@ -10,8 +10,8 @@ import traceback
 
 from ..states import StateProtocol, SharedProtocol
 from ..diff import Change, ChangeConflictException, Diff
-from ..nodes import Node, END, START
-from .types import SingleNext, NextNode, ErrorEntry, SingleErrorSource, Entries, BranchContainer, SingleSource, Source, Types, ResolvedNext, BranchJoin
+from ..nodes import Node, NavigationNode, END, START
+from .types import BranchJoin, ErrorSource, Flexible, NextNode, ErrorEntry, Entries, BranchContainer, Source, Next, NextCallable, Types
 from .hooks import GraphHook
 from .branches import Branch
 
@@ -140,7 +140,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
         self.edges = edges
         self.hooks = hooks or []
 
-        self.branch_registry: dict[SingleSource[T, S], list[Branch[T, S]]] = defaultdict(list)
+        self.branch_registry: dict[Source[T, S], list[Branch[T, S]]] = defaultdict(list)
         self.join_registry: dict[BranchJoin[T, S], list[Branch[T, S]]] = defaultdict(list)
 
         self.index_branches()
@@ -155,9 +155,9 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
             if len(branch_container) < 3:
                 raise ValueError(f"Branch container must have at least one node between source and join, got elements: {branch_container}")
 
-            if Types[T, S].is_single_source(branch_container[0]):
+            if Types[T, S].is_source(branch_container[0]):
                 sources = [branch_container[0]]
-            elif Types[T, S].is_single_source_list(branch_container[0]):
+            elif Types[T, S].is_source_list(branch_container[0]):
                 sources = branch_container[0]
             else:
                 raise ValueError(f"Invalid branch source: {branch_container[0]}")
@@ -223,7 +223,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
         try:
             
-            next_nodes: list[NextNode[T, S]] = await self.get_next(state, shared, branch.source, branch)
+            next_nodes: list[NextNode[T, S]] = await self.get_next(state, shared, [branch.source], branch)
 
             while next_nodes:
 
@@ -298,7 +298,8 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
         """
 
         try:
-            await node.node(state, shared)
+            if isinstance(node.node, Node):
+                await node.node(state, shared)
 
         except Exception as e:
             e.source_node = node # type: ignore
@@ -434,7 +435,7 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
     
 
 
-    async def get_next(self, state: T, shared: S, current_nodes: Source[T, S], branch: Branch[T, S]) -> list[NextNode[T, S]]:
+    async def get_next(self, state: T, shared: S, current_nodes: list[Source[T, S]], branch: Branch[T, S]) -> list[NextNode[T, S]]:
         """
         Get the next nodes to run based on the current nodes and the graph's edges.
 
@@ -451,16 +452,16 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
         next_list: list[NextNode[T, S]] = []
 
-        if Types[T, S].is_single_source_list(current_nodes):
+        if Types[T, S].is_source(current_nodes):
+            next_list.extend(
+                await self.resolve_entries(state, shared, branch.edge_index[current_nodes])
+            )
+
+        if Types[T, S].is_source_list(current_nodes):
             for current_node in current_nodes:
                 next_list.extend(
                     await self.resolve_entries(state, shared, branch.edge_index[current_node])
                 )
-
-        elif Types[T, S].is_single_source(current_nodes):
-            next_list.extend(
-                await self.resolve_entries(state, shared, branch.edge_index[current_nodes])
-            )
         
         else:
             raise ValueError(f"Invalid current_nodes type: {type(current_nodes)}")
@@ -544,12 +545,12 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
     
 
 
-    def match_error(self, e: Exception, source: SingleErrorSource[T, S], source_node: NextNode[T, S]) -> bool:
+    def match_error(self, e: Exception, source: ErrorSource[T, S], source_node: NextNode[T, S]) -> bool:
 
         match source:
             case type(): # Exception type
                 return issubclass(type(e), source)
-            case (node, error_type): # (Node, Exception type)
+            case (error_type, node): # (Exception type, Node)
                 return node == source_node.node and isinstance(e, error_type)
 
 
@@ -578,11 +579,8 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
         next = entry.next
 
-        if not Types[T, S].is_resolved_next(next):
-            if not Types[T, S].is_next(next):
-                raise ValueError(f"Invalid next type: {type(next)}")
+        if Types[T, S].is_next_callable(next):
             
-            next = cast(Callable[[T, S], ResolvedNext[T, S]], next)
             next = next(state, shared)
 
             if inspect.isawaitable(next):
@@ -595,31 +593,28 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
     
 
 
-    def get_next_nodes(self, next: ResolvedNext[T, S]) -> list[Node[T, S]]:
+    def get_next_nodes(self, next: Flexible[Next[T, S]] | NextCallable[T, S]) -> list[Node[T, S] | NavigationNode]:
 
-        next_nodes: list[Node[T, S]] = []
+        next_nodes: list[Node[T, S] | NavigationNode] = []
 
-        def match(x: SingleNext[T, S]) -> None:
+        def match(x: Next[T, S]) -> None:
 
             match x:
 
                 case None:
                     pass
                 
-                case Node():
+                case Node() | NavigationNode():
                     next_nodes.append(x)
 
                 case _:
                     raise ValueError(f"Invalid next type: {type(x)}")
 
-        
-        if Types[T, S].is_single_next_list(next):
+        if Types[T, S].is_next(next):
+            match(next)
+        elif Types[T, S].is_next_list(next):
             for x in next:
                 match(x)
-
-        elif Types[T, S].is_single_next(next):
-            match(next)
-
         else:
             raise ValueError(f"Invalid next type: {type(next)}")
 

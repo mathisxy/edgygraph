@@ -1,12 +1,12 @@
 from __future__ import annotations
+from typing import Hashable
 from collections import defaultdict
 from collections.abc import Hashable
 import asyncio
 
-
 from ..states import StateProtocol, SharedProtocol
 from ..diff import Change
-from .types import Edge, ErrorEdge, Entry, ErrorEntry, NextCallable, SingleErrorSource, Types, BranchContainer, SingleSource, NextWithConfig, SourceWithConfig, Source, SingleNext, Next, ErrorSource
+from .types import Edge, ErrorEdge, Entry, ErrorEntry, ErrorSource, Flexible, UnresolvedSource, UnresolvedNext, Types, BranchContainer, Source, Next, NextCallable
 
 
 class Branch[T: StateProtocol, S: SharedProtocol]:
@@ -23,7 +23,7 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
     """
 
 
-    def __init__(self, edges: BranchContainer[T, S], source: SingleSource[T, S]) -> None:
+    def __init__(self, edges: BranchContainer[T, S], source: Source[T, S]) -> None:
 
         self.edges = edges[:-1]
         self.source = source
@@ -31,8 +31,8 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
 
         self.result: asyncio.Future[dict[tuple[Hashable, ...], Change]] | None = None
 
-        self.edge_index: dict[SingleSource[T, S] | NextCallable[T, S], list[Entry[T, S]]] = defaultdict(list)
-        self.error_edge_index: dict[SingleErrorSource[T, S], list[ErrorEntry[T, S]]] = defaultdict(list)
+        self.edge_index: dict[Source[T, S], list[Entry[T, S]]] = defaultdict(list)
+        self.error_edge_index: dict[ErrorSource[T, S], list[ErrorEntry[T, S]]] = defaultdict(list)
 
         self.index_edges()
 
@@ -45,10 +45,10 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
 
         for i, (source, next) in enumerate(zip(self.edges, self.edges[1:])):
 
-            if not Types[T, S].is_any_source(source) and not Types[T, S].is_next(next):
+            if not Types[T, S].is_unresolved_source(source) and not Types[T, S].is_unresolved_next(next):
                 raise ValueError(f"Invalid edge: source: {source}, next: {next} in branch with source {self.source} and join {self.join}")
 
-            if Types[T, S].is_any_source(source) and Types[T, S].is_next_with_config(next):
+            if Types[T, S].is_unresolved_source(source) and Types[T, S].is_unresolved_next(next):
                 
                 try:
 
@@ -57,7 +57,7 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
 
                 except EmptyFilterResult:
 
-                    if Types[T, S].is_any_source(next) and Types[T, S].is_next_with_config(source):
+                    if Types[T, S].is_unresolved_source(next) and Types[T, S].is_unresolved_next(source):
                         try:
                             self.filter_source_by_config(next)
                             self.filter_next_by_config(source)
@@ -72,9 +72,9 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
 
                 for s in sources:
 
-                    if Types[T, S].is_single_source(s):
+                    if Types[T, S].is_source(s):
                         self.index_edge(Edge(source=s, next=filtered_next), i)
-                    elif Types[T, S].is_single_error_source(s):
+                    elif Types[T, S].is_error_source(s):
                         self.index_edge(ErrorEdge(source=s, next=filtered_next), i)
                     else:
                         raise ValueError(f"Invalid filtered source: {filtered_source} from original source: {source} in branch with source {self.source} and join {self.join}")
@@ -104,7 +104,7 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
         
 
 
-    def filter_source_by_config(self, source: SourceWithConfig[T, S] | ErrorSource[T, S]) -> Source[T, S] | ErrorSource[T, S]:
+    def filter_source_by_config(self, source: Flexible[UnresolvedSource[T, S]]) -> list[Source[T, S]] | ErrorSource[T, S]:
         """
         Filter the source by its config.
 
@@ -120,49 +120,39 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
             EmptyFilterResult: If the whole source is filtered out.
         """
 
-        if Types[T, S].is_single_source_with_config(source):
-
-            if isinstance(source, tuple):
-
-                (source, config) = source
-
-                if config.only_next:
-                    raise EmptyFilterResult()
-                
-            return source
+        if Types[T, S].is_error_source(source):
+            return source # Error sources have no filters
         
-        elif Types[T, S].is_single_source_with_config_list(source):
+        if Types[T, S].is_unresolved_source_only_flexible(source):
 
-            filtered_sources: list[SingleSource[T, S]] = []
+            source_list = source if isinstance(source, list) else [source]
+            filtered_sources: list[Source[T, S]] = []
 
-            for single_source in source:
+            for single_source in source_list:
 
-                if isinstance(single_source, tuple):
+                if Types[T, S].is_node_with_config(single_source):
 
-                    (single_source, config) = single_source
+                    (config, single_source) = single_source
 
                     if not config.only_next:
                         filtered_sources.append(single_source)
 
-                else:
+                elif Types[T, S].is_source(single_source):
                     filtered_sources.append(single_source)
-
+                else:
+                    raise ValueError(f"Invalid source: {single_source} in branch with source {self.source} and join {self.join}")
+                
             if filtered_sources == []:
                 raise EmptyFilterResult()
             
             return filtered_sources
-
-        elif Types[T, S].is_error_source(source):
-
-            return source # Error sources have no filters
-
         
         else:
             raise ValueError(f"Invalid source: {source} in branch with source {self.source} and join {self.join}")
 
 
 
-    def filter_next_by_config(self, next: NextWithConfig[T, S]) -> Next[T, S]:
+    def filter_next_by_config(self, next: UnresolvedNext[T, S]) -> list[Next[T, S]] | NextCallable[T, S]:
         """
         Filter the next by its config.
 
@@ -181,26 +171,20 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
         if Types[T, S].is_next_callable(next):
             return next
         
-        elif Types[T, S].is_single_next_with_config(next):
+        if Types[T, S].is_unresolved_next_only_flexible(next):
 
-            if isinstance(next, tuple):
+            if not isinstance(next, list):
+                next_list = [next]
+            else:
+                next_list = next
+            
+            filtered_next: list[Next[T, S]] = []
 
-                (next, config) = next
-
-                if config.only_source:
-                    raise EmptyFilterResult()
-                
-            return next
-        
-        elif Types[T, S].is_single_next_with_config_list(next):
-
-            filtered_next: list[SingleNext[T, S]] = []
-
-            for single_next in next:
+            for single_next in next_list:
 
                 if isinstance(single_next, tuple):
 
-                    (single_next, config) = single_next
+                    (config, single_next) = single_next
 
                     if not config.only_source:
                         filtered_next.append(single_next)
@@ -215,6 +199,7 @@ class Branch[T: StateProtocol, S: SharedProtocol]:
         
         else:
             raise ValueError(f"Invalid next: {next} in branch with source {self.source} and join {self.join}")
+
 
 
 class EmptyFilterResult(Exception):
