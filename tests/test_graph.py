@@ -336,8 +336,9 @@ class TestGraphErrorEdges:
         state = SimpleState()
         shared = SimpleShared()
         g = Graph(edges=[(
-            START, raiser,
-            (raiser, RuntimeError),
+            START, 
+            raiser,
+            RuntimeError,
             recovery,
             END)
         ])
