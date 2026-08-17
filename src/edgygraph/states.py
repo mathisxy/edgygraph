@@ -30,6 +30,7 @@ class Shared(BaseModel):
     Implements pydantic's BaseModel with arbitrary types allowed.
     """
     lock: Lock = Field(default_factory=Lock)
+    errors: list[ExceptionGroup] = Field(default_factory=list[ExceptionGroup])
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -65,6 +66,7 @@ class SharedProtocol(PydanticModel, Protocol):
     The usage of protocols allows a more flexible approach to generic typing.
     """
     lock: Lock
+    errors: list[ExceptionGroup]
 
 
 class StateAttribute(BaseModel):

@@ -258,6 +258,9 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
 
                     # Hook
                     for h in self.hooks: await h.on_step_end(state, shared, next_nodes)
+
+                    async with shared.lock:
+                        shared.errors.append(eg)
                     
                     next_nodes = await self.get_next_from_error(state, shared, eg, branch)
                     
@@ -465,26 +468,6 @@ class Graph[T: StateProtocol = StateProtocol, S: SharedProtocol = SharedProtocol
         
         else:
             raise ValueError(f"Invalid current_nodes type: {type(current_nodes)}")
-
-
-        # # Instant nodes
-        # current_instant_next_list: list[NextNode[T, S]] = []
-
-        # while True:
-
-        #     current_entries = [
-        #         entry
-        #         for next in current_instant_next_list 
-        #         for entry in branch.edge_index[next.node]
-        #         if entry.config.instant
-        #     ]
-            
-        #     if not current_entries:
-        #         break
-            
-        #     current_instant_next_list = await self.resolve_entries(state, shared, current_entries)
-        #     next_list.extend(current_instant_next_list)
-
 
         return next_list
     
